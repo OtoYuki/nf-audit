@@ -17,10 +17,8 @@
 ## Monday Sept 22
 
 1. Pin `nf-audit` on github.com/OtoYuki; open the sharkLoc/rust-in-bioinformatics PR; tick B4.
-2. Re-run the cross-version table with the newest releases included and pin the exact command in the blog draft:
-   `./target/release/nf-audit compare --top 12 $(cat /path/to/compare-salmon.txt) > releases-salmon.md`
-   (the file list is written by the Sept 19 session; regenerate from `data/rnaseq/*/aligner_star_salmon/pipeline_info/execution_report_*.html` and drop reruns/failed runs by hand).
-3. Same for `star_rsem` (RSEM_CALCULATEEXPRESSION dominates those; different story, worth one paragraph).
+2. The cross-release tables for both branches are already in `examples/` (25 star_salmon, 20 star_rsem releases) with the exact file lists (`*.files`). Regenerate with `nf-audit compare --top 12 $(cat examples/rnaseq-star_salmon-releases.files)` after any parser change.
+3. Check the RSEM threading hypothesis before writing it as fact: nf-core/rnaseq 3.18.0 changelog and `modules/nf-core/rsem/calculateexpression/main.nf` (does `--num-threads` still reach `rsem-calculate-expression` in `--alignments` mode?). The numbers are in `examples/README.md` item 3.
 4. sarek `results-dev`: pull, inspect, one analyze. Only if it is metered.
 5. Blog post draft "Where nf-core/rnaseq's $35 goes, process by process": the 3.15.1 analyze report, the compare matrix as the chart, the Platform-vs-nf-audit paragraph, the unmetered-runs caveat as the honesty section.
 6. RustQC issue #141 (HashMap iteration order) or #129 (hts-sys pin) as the PR of the week.
