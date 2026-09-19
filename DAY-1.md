@@ -12,9 +12,11 @@
 6. `nf-audit compare` added: many reports in, per-run table plus a process × run cost-share matrix. Run on 17 star_salmon releases (3.1 → 3.17): allocated cost fell 45% between 3.10 and 3.11 and has been flat since; **unused allocation has sat at 63–68% for five years**; QUALIMAP_RNASEQ climbed from 17% to 23% of the bill while STAR sits at 23–24%.
 7. Report header parsed (`RunMeta`): revision, profile, Nextflow version, Fusion, wall duration, Nextflow's own CPU-hours; shown by `inspect` and at the top of every report.
 
+8. Published: https://github.com/OtoYuki/nf-audit (public, MIT, topics set), release v0.1.0 with a Linux x86_64 tarball. Board B1–B3 ticked. B4 still needs, by hand: pin the repo on the GitHub profile (no API for it) and the PR to sharkLoc/rust-in-bioinformatics.
+
 ## Monday Sept 22
 
-1. `git log` should show the initial commit; if the repo is not on GitHub yet: `gh repo create OtoYuki/nf-audit --public --source . --push`.
+1. Pin `nf-audit` on github.com/OtoYuki; open the sharkLoc/rust-in-bioinformatics PR; tick B4.
 2. Re-run the cross-version table with the newest releases included and pin the exact command in the blog draft:
    `./target/release/nf-audit compare --top 12 $(cat /path/to/compare-salmon.txt) > releases-salmon.md`
    (the file list is written by the Sept 19 session; regenerate from `data/rnaseq/*/aligner_star_salmon/pipeline_info/execution_report_*.html` and drop reruns/failed runs by hand).
