@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "Cost and right-sizing audit of Nextflow runs from execution traces and reports"
 license = "MIT"
+authors = ["Sushant Hona"]
+repository = "https://github.com/OtoYuki/nf-audit"
 
 [dependencies]
 anyhow = "1"

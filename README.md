@@ -49,11 +49,11 @@ Validate on one real run before rolling out. A process at 100% CPU efficiency sl
 
 ## Public data to demo on
 
-nf-core publishes the traces and reports of every full-size AWS test run in a public bucket. Layout changed over time: older rnaseq runs keep one `pipeline_info/` per aligner (`aligner_star_salmon/`, `aligner_star_rsem/`), newer ones a single `pipeline_info/`. The script finds either.
+nf-core publishes the traces and reports of its full-size AWS test runs in a public bucket. Layout changed over time: older rnaseq runs keep one `pipeline_info/` per aligner (`aligner_star_salmon/`, `aligner_star_rsem/`), newer ones a single `pipeline_info/`. The script finds either.
 
 ```
 scripts/pull-megatests.sh --list rnaseq
-scripts/pull-megatests.sh rnaseq results-4053b2ec173fc0cfdd13ff2b51cfaceb59f783cb   # rnaseq 3.15.1 test_full, 8 ENCODE samples, metered
+scripts/pull-megatests.sh rnaseq results-4053b2ec173fc0cfdd13ff2b51cfaceb59f783cb   # rnaseq 3.15.1 test_full, 8 full-size samples, metered
 scripts/pull-megatests.sh rnaseq results-0bb032c1e3b1e1ff0b0a72192b9118fdb5062489   # rnaseq 3.19.0, unmetered, one QUALIMAP failure
 scripts/pull-megatests.sh sarek results-dev
 ```
