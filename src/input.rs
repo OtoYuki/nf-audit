@@ -53,7 +53,7 @@ pub fn read_trace(path: &Path) -> Result<Vec<Task>> {
 /// Run-level facts the report header states in prose: pipeline revision, profile, Nextflow
 /// version, Fusion/Wave flags, wall-clock duration and Nextflow's own CPU-hours figure.
 /// Every field is optional; older reports lack some of them.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RunMeta {
     pub command: Option<String>,
     pub repository: Option<String>,

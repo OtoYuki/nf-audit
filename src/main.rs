@@ -56,6 +56,9 @@ enum Cmd {
         /// Show at most this many processes in tables.
         #[arg(long, default_value_t = 25)]
         top: usize,
+        /// Output results as JSON instead of Markdown.
+        #[arg(long)]
+        json: bool,
     },
     /// Compare several runs (one report each): per-run totals and a process-by-run cost-share matrix.
     Compare {
@@ -76,13 +79,39 @@ enum Cmd {
         top: usize,
     },
     /// Print the columns found in a trace file and how many tasks it holds. Use this first.
-    Inspect { path: PathBuf },
+    Inspect {
+        path: PathBuf,
+        /// Output inspection facts as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(serde::Serialize)]
+struct AnalyzeJson<'a> {
+    rates: &'a Rates,
+    run: &'a RunStats,
+    meta: &'a input::RunMeta,
+    recommendations: &'a [analysis::Recommendation],
+}
+
+#[derive(serde::Serialize)]
+struct InspectJson {
+    file: String,
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    meta: Option<input::RunMeta>,
+    tasks: usize,
+    tasks_with_requests: usize,
+    tasks_with_metrics: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    columns: Vec<String>,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Inspect { path } => inspect(&path),
+        Cmd::Inspect { path, json } => inspect(&path, json),
         Cmd::Compare {
             reports,
             rates,
@@ -111,6 +140,7 @@ fn main() -> Result<()> {
             margin,
             config_out,
             top,
+            json,
         } => {
             let mut r =
                 Rates::preset(&rates).ok_or_else(|| anyhow!("unknown rate preset `{rates}`"))?;
@@ -134,18 +164,28 @@ fn main() -> Result<()> {
             let tasks = input::merge(t, rep);
             let run = analyse(&tasks, &r);
             let recs = recommend(&run, &r, margin);
-            print!(
-                "{}",
-                render_markdown(
-                    &run,
-                    &r,
-                    &recs,
-                    top,
-                    trace.as_deref().map(|p| p.display().to_string()),
-                    report.as_deref().map(|p| p.display().to_string()),
-                    &meta
-                )
-            );
+            if json {
+                let payload = AnalyzeJson {
+                    rates: &r,
+                    run: &run,
+                    meta: &meta,
+                    recommendations: &recs,
+                };
+                println!("{}", serde_json::to_string_pretty(&payload)?);
+            } else {
+                print!(
+                    "{}",
+                    render_markdown(
+                        &run,
+                        &r,
+                        &recs,
+                        top,
+                        trace.as_deref().map(|p| p.display().to_string()),
+                        report.as_deref().map(|p| p.display().to_string()),
+                        &meta
+                    )
+                );
+            }
             if let Some(out) = config_out {
                 fs::write(&out, render_config(&recs))?;
                 eprintln!("wrote {}", out.display());
@@ -155,10 +195,31 @@ fn main() -> Result<()> {
     }
 }
 
-fn inspect(path: &std::path::Path) -> Result<()> {
+fn inspect(path: &std::path::Path, as_json: bool) -> Result<()> {
     let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
     if name.ends_with(".html") {
         let (tasks, meta) = input::read_report_with_meta(path)?;
+        let with_req = tasks
+            .iter()
+            .filter(|t| t.cpus.is_some() && t.memory.is_some())
+            .count();
+        let with_metrics = tasks
+            .iter()
+            .filter(|t| t.pct_cpu.is_some() || t.peak_rss.is_some())
+            .count();
+        if as_json {
+            let info = InspectJson {
+                file: path.display().to_string(),
+                kind: "report",
+                meta: Some(meta),
+                tasks: tasks.len(),
+                tasks_with_requests: with_req,
+                tasks_with_metrics: with_metrics,
+                columns: Vec::new(),
+            };
+            println!("{}", serde_json::to_string_pretty(&info)?);
+            return Ok(());
+        }
         if let Some(line) = meta.summary_line() {
             println!("run: {line}");
         }
@@ -171,14 +232,6 @@ fn inspect(path: &std::path::Path) -> Result<()> {
         if let Some(c) = &meta.cpu_hours {
             println!("nextflow's own CPU-hours figure: {c}");
         }
-        let with_req = tasks
-            .iter()
-            .filter(|t| t.cpus.is_some() && t.memory.is_some())
-            .count();
-        let with_metrics = tasks
-            .iter()
-            .filter(|t| t.pct_cpu.is_some() || t.peak_rss.is_some())
-            .count();
         println!("report: {} tasks, {} with requested cpus+memory, {} with usage metrics (%cpu/peak_rss)", tasks.len(), with_req, with_metrics);
         if with_metrics == 0 && !tasks.is_empty() {
             println!(
@@ -193,11 +246,21 @@ fn inspect(path: &std::path::Path) -> Result<()> {
         let text = fs::read_to_string(path)?;
         let header = text.lines().next().unwrap_or("");
         let cols: Vec<&str> = header.split('\t').collect();
-        println!(
-            "trace: {} columns, {} tasks",
-            cols.len(),
-            text.lines().count().saturating_sub(1)
-        );
+        let tasks_count = text.lines().count().saturating_sub(1);
+        if as_json {
+            let info = InspectJson {
+                file: path.display().to_string(),
+                kind: "trace",
+                meta: None,
+                tasks: tasks_count,
+                tasks_with_requests: 0,
+                tasks_with_metrics: 0,
+                columns: cols.iter().map(|s| s.to_string()).collect(),
+            };
+            println!("{}", serde_json::to_string_pretty(&info)?);
+            return Ok(());
+        }
+        println!("trace: {} columns, {} tasks", cols.len(), tasks_count);
         println!("columns: {}", cols.join(", "));
         let has = |c: &str| cols.contains(&c);
         if !(has("cpus") && has("memory")) {
@@ -419,7 +482,7 @@ pub(crate) fn display_names<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::display_names;
+    use super::*;
 
     #[test]
     fn ambiguous_last_components_get_their_parent() {
@@ -427,6 +490,22 @@ mod tests {
         assert_eq!(n["A:B:X"], "B:X");
         assert_eq!(n["A:C:X"], "C:X");
         assert_eq!(n["A:D:Y"], "Y");
+    }
+
+    #[test]
+    fn inspect_json_serializes() {
+        let info = InspectJson {
+            file: "test.html".to_string(),
+            kind: "report",
+            meta: Some(input::RunMeta::default()),
+            tasks: 10,
+            tasks_with_requests: 10,
+            tasks_with_metrics: 8,
+            columns: vec![],
+        };
+        let s = serde_json::to_string(&info).unwrap();
+        assert!(s.contains("\"tasks\":10"));
+        assert!(s.contains("\"kind\":\"report\""));
     }
 }
 

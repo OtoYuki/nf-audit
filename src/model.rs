@@ -6,7 +6,7 @@ use std::collections::HashMap;
 ///
 /// Every default trace column is kept even where the current analysis does not read it, so
 /// the record is complete for JSON output and per-sample attribution later.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[allow(dead_code)]
 pub struct Task {
     pub task_id: String,

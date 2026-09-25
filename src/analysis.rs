@@ -7,7 +7,7 @@ const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
 /// Price per resource-hour. Two numbers are enough to price any executor that bills on
 /// allocated CPU and memory; instance-level pricing is folded into them.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Rates {
     pub name: &'static str,
     pub cpu_hour: f64,
@@ -45,7 +45,7 @@ impl Rates {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProcessStats {
     pub process: String,
     pub tasks: usize,
@@ -101,7 +101,7 @@ impl ProcessStats {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RunStats {
     pub tasks: usize,
     pub processes: Vec<ProcessStats>,
@@ -225,7 +225,7 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
 }
 
 /// A right-sizing recommendation for one process.
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Recommendation {
     pub process: String,
     pub cpus_now: f64,
