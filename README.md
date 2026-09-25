@@ -35,13 +35,17 @@ Two numbers price any executor that bills on allocation. The presets differ by 1
 
 ### How this differs from Seqera Platform's estimate
 
-Platform's per-task estimate is `VM hourly rate × max(task cpus / VM cpus, task memory / VM memory) × (complete − start)`: it charges the dominant resource of the actual instance type at that instance's price, and it uses wall time including file staging (docs.seqera.io/platform-cloud/monitoring/cloud-costs). nf-audit charges CPU and memory additively at a flat rate on `realtime`. On the same nf-core/rnaseq 3.15.1 `test_full` run, Platform reported $34.90 on AWS Batch spot with Fusion ($58.40 on plain S3); nf-audit's `seqera-compute` preset gives $79.23 and `aws-m5-spot` gives $6.21. Both bracket the Platform figure for understandable reasons: the list price is a managed-service price, and the additive m5 split ignores that a 72 GB request pins a whole memory-heavy slot. An instance-aware "dominant resource" model is on the roadmap; until then use the preset as a consistent yardstick across runs, not as an invoice.
+Platform's per-task estimate is `VM hourly rate × max(task cpus / VM cpus, task memory / VM memory) × (complete − start)`: it charges the dominant resource of the actual instance type at that instance's price, on task wall time (complete − start), and by Seqera's own note it excludes storage, network and head-job costs (docs.seqera.io/platform-cloud/monitoring/cloud-costs). nf-audit charges CPU and memory additively at a flat rate on `realtime`. On the same nf-core/rnaseq 3.15.1 `test_full` run, Seqera's documentation gives $34.90 on AWS Batch with Fusion and fast instance storage ($58.40 on plain S3); nf-audit's `seqera-compute` preset gives $79.23 and `aws-m5-spot` gives $6.21. Both bracket the Platform figure for understandable reasons: the list price is a managed-service price, and the additive m5 split ignores that a 72 GB request pins a whole memory-heavy slot. An instance-aware "dominant resource" model is on the roadmap; until then use the preset as a consistent yardstick across runs, not as an invoice.
 
 ## Right-sizing
 
 For each process with usage metrics: new request = observed peak × margin (default 1.25), rounded to sane units, never above the current request, never below 1 CPU / 1 GiB. Time limit = max observed run time × 1.5, rounded up. Processes without metrics get no recommendation. The tool shrinks over-allocation; it does not diagnose OOM kills (those appear as failed tasks, look at the `failed` column).
 
 Validate on one real run before rolling out. A process at 100% CPU efficiency slows down if you cut its cores.
+
+## Cost by task tag
+
+`analyze` also groups cost by the task tag, the text in parentheses after the process name (`STAR_ALIGN (H1_REP2)`). nf-core pipelines usually tag with the sample ID, so this is a per-sample cost: on the rnaseq 3.22.0 `star_rsem` megatest, the eight samples carry $31.19 to $42.45 each of a $294.25 run. The tag is whatever the pipeline author chose, though; sarek tags lanes (`HCC1395T-1`), genomic intervals and reference files as well, and each shows up as its own row. The report states what share of the cost carries a tag. The same table is in `--json` under `run.tags`.
 
 ## Public data to demo on
 
@@ -54,17 +58,16 @@ scripts/pull-megatests.sh rnaseq results-0bb032c1e3b1e1ff0b0a72192b9118fdb506248
 scripts/pull-megatests.sh sarek results-dev
 ```
 
-Anchor to reconcile against: Seqera's published figure for nf-core/rnaseq **3.15.1** `test_full` on AWS Batch (m5/r5, spot and on-demand) is $34.90 with Fusion and $58.40 on plain S3 (docs.seqera.io/platform-cloud/getting-started/rnaseq). That run is Seqera's own, not a megatest, but the megatest 3.15.1 `star_salmon` run has the same profile and input and completed in 5h 8m with 316.9 CPU-hours, which is the number Nextflow itself prints in the report header and which `nf-audit` reproduces exactly.
+Anchor to reconcile against: Seqera's published figure for nf-core/rnaseq **3.15.1** `test_full` on AWS Batch (m5/r5, spot and on-demand) is $34.90 with Fusion and $58.40 on plain S3 (docs.seqera.io/platform-cloud/getting-started/rnaseq). That run is Seqera's own, not a megatest, but the megatest 3.15.1 `star_salmon` run (`-profile test_full_aws`, the same 8 full-size samples the guide uses) completed in 5h 8m with 316.9 CPU-hours, which is the number Nextflow itself prints in the report header and which `nf-audit` reproduces exactly.
 
 ## Status
 
-v0.1, Sept 2026. Parsers are unit-tested against Nextflow's formatting and have been run against 17 rnaseq megatest releases from 3.1 (Nextflow 21.04) to 3.17 (24.04) plus 3.19.0 (25.04). Two things learned from real files that the synthetic fixtures did not show: the report's own script references `window.data_byprocess`, `window.data.summary` and `window.data.trace` before the assignment, and every task's `script` field carries JavaScript-only `\'` escapes, so the blob is not valid JSON until they are rewritten. Report-JSON conventions follow Nextflow's `ReportObserver.renderJsonData` (every `TraceRecord.FIELDS` entry as a JSON string: memory in bytes, time in milliseconds, `%cpu` as a float, `cpus` as an integer string). A report with more than `maxTasks` tasks (default 10,000) embeds `"trace": null`; nf-audit says so and points you at a trace configured with `trace.fields`.
+v0.1, Sept 2026. Parsers are unit-tested against Nextflow's formatting and have been run against 45 rnaseq megatest runs (25 releases on `star_salmon`, 20 on `star_rsem`, 3.1 to 3.26.0, Nextflow 21.04 to 25.10), the unmetered 3.19.0 run and sarek `results-dev`; on all 45 metered rnaseq runs the requested CPU-hours match the figure in the report header to within 0.1. Two things learned from real files that the synthetic fixtures did not show: the report's own script references `window.data_byprocess`, `window.data.summary` and `window.data.trace` before the assignment, and every task's `script` field carries JavaScript-only `\'` escapes, so the blob is not valid JSON until they are rewritten. Report-JSON conventions follow Nextflow's `ReportObserver.renderJsonData` (every `TraceRecord.FIELDS` entry as a JSON string: memory in bytes, time in milliseconds, `%cpu` as a float, `cpus` as an integer string). A report with more than `maxTasks` tasks (default 10,000) embeds `"trace": null`; nf-audit says so and points you at a trace configured with `trace.fields`.
 
 ## Roadmap
 
 - Instance-aware pricing (Seqera's dominant-resource formula against an instance table; `start`/`complete` timestamps instead of `realtime`).
 - Retry attribution: cost of spot reclamation vs genuine failures.
-- Per-sample cost.
-- JSON/CSV output for dashboards.
+- CSV output for dashboards (JSON exists: `--json`).
 
 MIT. Author: Sushant Hona.

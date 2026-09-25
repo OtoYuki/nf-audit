@@ -46,6 +46,31 @@
 | TIDDIT_NORMAL:TIDDIT_SV | 1 | 7m | $0.18 | 1% | 34% | 26% | $0.13 | 0 | 0 |
 | FASTQC | 2 | 20m | $0.17 | 1% | 49% | 24% | $0.10 | 0 | 0 |
 
+## Cost by task tag (top 25)
+
+The tag is the text in parentheses after the process name. nf-core pipelines usually tag with the sample ID, which makes this a per-sample cost; other tags (lanes, intervals, reference files) show up as their own rows. Tagged tasks carry 99.9% of the cost.
+
+| tag | tasks | processes | run time | cost | share | waste |
+|---|---:|---:|---:|---:|---:|---:|
+| HCC1395T_vs_HCC1395N | 105 | 43 | 12.5h | $6.87 | 45% | $3.68 |
+| HCC1395N | 75 | 34 | 5.7h | $4.55 | 30% | $2.06 |
+| HCC1395T | 29 | 15 | 4.1h | $3.52 | 23% | $1.41 |
+| HCC1395T-1 | 2 | 2 | 14m | $0.15 | 1% | $0.06 |
+| HCC1395N-1 | 2 | 2 | 12m | $0.14 | 1% | $0.05 |
+| (untagged) | 1 | 1 | 1m | $0.01 | 0% | $0.01 |
+| Homo_sapiens_assembly38.fasta | 1 | 1 | 1m | $0.01 | 0% | $0.01 |
+| dbsnp | 1 | 1 | 1m | $0.00 | 0% | $0.00 |
+| intervals | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| GC_G1000_hg38.zip | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| S07604624_Padded_Agilent_SureSelectXT_allexons_V6_UTR.bed | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| 1 | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| RT_G1000_hg38.zip | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| S07604624_Padded_Agilent_SureSelectXT_allexons_V6_UTR | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| G1000_alleles_hg38.zip | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| G1000_loci_hg38.zip | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| chr1_11981-12351 | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+| chr17_38877931-38878296 | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
+
 ## Right-sizing (margin applied to observed peaks): est. saving $5.01 (33%)
 
 | process | cpus now → new | memory now → new | time now → new | est. saving |
