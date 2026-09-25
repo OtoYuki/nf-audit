@@ -4,3 +4,7 @@ wall 97.748 s  user 55.375 s  sys 41.865 s
 Parsed 18000000 entries
 Done!
 S.stat/S.cnt line 1: 1922 5808320 0 5810242
+# second run, via rsem_parse_only.sh (same image, BAM and --cpus=1)
+wall 92.531 s  user 52.229 s  sys 39.437 s
+Parsed 18000000 entries
+Done!
