@@ -18,13 +18,15 @@ Hardware: one 16-thread workstation, local NVMe. Each run is a container capped 
 
 `runs/summary.tsv`, one run per thread count:
 
-| `--num-threads` | wall | speed-up | avg. CPU | CPUs × wall | peak memory (cgroup) |
+| `--num-threads` | wall | speed-up | avg. CPU | CPUs × wall | cgroup `memory.peak`* |
 |---:|---:|---:|---:|---:|---:|
 | 1 | 1,699 s | 1.00× | 99% | 1,699 CPU·s | 2.7 GB |
 | 2 | 976 s | 1.74× | 185% | 1,952 CPU·s | 5.2 GB |
 | 4 | 574 s | 2.96× | 335% | 2,297 CPU·s | 3.5 GB |
 | 8 | 440 s | 3.86× | 545% | 3,522 CPU·s | 4.8 GB |
 | 12 | 389 s | 4.37× | 757% | 4,673 CPU·s | 5.2 GB |
+
+\* `memory.peak` of the container's cgroup, which includes page cache, so it is not RSEM's resident memory. The megatest `peak_rss` values (≤9.4 GB) are the ones to size memory by.
 
 - **Output:** `S.genes.results` and `S.isoforms.results` have the same sha256 at every thread count (`runs/hashes.txt`).
 - **STAR:** 96.55% of input pairs uniquely mapped on chr1 (`runs/star_chr1_log.txt`).
@@ -34,7 +36,7 @@ Hardware: one 16-thread workstation, local NVMe. Each run is a container capped 
 
 **Shows:**
 - On local disk, RSEM's EM uses the threads it is given. Returns diminish: 4 threads reach 68% of the 12-thread speed for 49% of its CPU reservation.
-- Reading about 22× the input size is RSEM's normal I/O pattern. The 360–465 GB `rchar` of the megatest tasks is not an anomaly in itself.
+- RSEM re-reads heavily (about 22× the input size here). So a large `rchar` on its own is not a sign of a problem. The megatest ratio can't be checked, because its transcriptome BAMs are not published.
 
 **Does not show:**
 - Why the same command averages about one core on the megatest infrastructure.
