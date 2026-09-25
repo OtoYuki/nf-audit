@@ -68,6 +68,7 @@ v0.1, Sept 2026. Parsers are unit-tested against Nextflow's formatting and have 
 
 - Instance-aware pricing (Seqera's dominant-resource formula against an instance table; `start`/`complete` timestamps instead of `realtime`).
 - Retry attribution: cost of spot reclamation vs genuine failures.
+- Time limits that grow as well as shrink: today right-sizing never raises a request, so it keeps a time limit that tasks are running into (rnaseq `star_rsem` 3.23.0–3.25.0 failed on RSEM's 16 h limit).
 - CSV output for dashboards (JSON exists: `--json`).
 
 MIT. Author: Sushant Hona.
