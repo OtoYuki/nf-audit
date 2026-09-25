@@ -10,4 +10,4 @@ podman run --rm --cpus=1 -v "$PWD":/w -w /w/$d $RSEM_IMG bash -c '
   TIMEFORMAT="wall %R s  user %U s  sys %S s"
   { time rsem-parse-alignments /w/rsem/genome ./tmp/S S.stat/S /w/aln/S.Aligned.toTranscriptome.out.bam 3 -tag XM > parse.out 2>&1 ; } 2> time.txt
 ' 2> >(grep -v 'graph driver' >&2)
-cat "$d/time.txt"; tail -2 "$d/parse.out"
+{ cat "$d/time.txt"; tail -2 "$d/parse.out"; } | tee -a runs/parse_only_p1.txt

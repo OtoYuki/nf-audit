@@ -1,6 +1,6 @@
 # Does `RSEM_CALCULATEEXPRESSION` use its 12 CPUs?
 
-In nf-core/rnaseq's AWS full-size tests (`--aligner star_rsem`, 3.22.0 onward), `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB. Its completed tasks average one to two cores (median 104%, mean 120% over 45 tasks) and peak at or below 9.45 GiB. This directory tests whether that is RSEM itself or the environment, by running the pipeline's own command line locally at several thread counts.
+In nf-core/rnaseq's AWS full-size tests (`--aligner star_rsem`, 3.22.0 onward), `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB. Its completed tasks average about one core (median 104%, interquartile range 94–131%, mean 120% over 45 tasks; range 25–511%) and peak at or below 9.45 GiB. This directory tests whether that is RSEM itself or the environment, by running the pipeline's own command line locally at several thread counts.
 
 ## What is reproduced
 
@@ -38,8 +38,8 @@ Hardware: a laptop with an 8-core / 16-thread i7-11800H (so the 12-thread run re
 ## What it does and does not show
 
 **Shows:**
-- On local disk, RSEM's EM uses the threads it is given. Returns diminish: 4 threads reach 68% of the 12-thread speed for 49% of its CPU reservation.
-- RSEM re-reads heavily: 21.9× the input size here. The megatest tasks read 17.6–20.7× theirs on 38 of 39 completed tasks (their BAM sizes, 20.3–25.8 GB, are in each task's rendered script). So the read volume is the same pattern; what differs on the test infrastructure is speed.
+- On local disk, the whole RSEM task speeds up with threads (the serial parse step is about 95 s of it). Only the whole task was timed, not the EM step alone. Returns diminish: 4 threads reach 68% of the 12-thread speed for 49% of the reserved CPU time (CPUs × wall).
+- RSEM re-reads heavily: 21.9× the input size in a separate 12-thread run here. The megatest tasks read 17.6–20.7× theirs on 44 of 45 completed tasks (their BAM sizes, 20.3–25.8 GB, are in each task's rendered script); the exception, 3.25.0 `K562_REP2`, read 1.3×. So the read volume is a similar pattern, and what differs on the test infrastructure is speed.
 
 **Does not show:**
 - Why the same command averages about one core on the megatest infrastructure.
@@ -56,4 +56,6 @@ Hardware: a laptop with an 8-core / 16-thread i7-11800H (so the 12-thread run re
 ./rsem_parse_only.sh        # optional: the parse step alone, 1 CPU
 ```
 
-Needs podman and about 25 GB of disk: the working directory reached 22 GB, mostly because each run keeps its ~1.6 GB `S.transcript.bam`. Do not run it under a RAM-backed `/tmp`: the first attempt at this silently produced truncated BAMs when the tmpfs filled.
+Needs podman and about 25 GB of disk. The working directory reached 22 GB: about 10 GB is the six runs' ~1.6 GB `S.transcript.bam` files, and the rest is the STAR index, alignments, reads and parse-only temp files.
+
+The files in `runs/` come from these scripts: `summary.tsv`, `hashes.txt` and `p*.time` from `rsem_threads.sh`, `io_p12.txt` from `rsem_io.sh` (plus two hand-added comment lines), and `parse_only_p1.txt` from `rsem_parse_only.sh` (the first of its two runs was typed in by hand from the same command). Do not run it under a RAM-backed `/tmp`: the first attempt at this silently produced truncated BAMs when the tmpfs filled.

@@ -15,7 +15,7 @@ podman run --rm --cpus="$P" -v "$PWD":/w -w /w/$d $RSEM_IMG bash -c "
       /w/aln/S.Aligned.toTranscriptome.out.bam /w/rsem/genome S > rsem.stdout 2> rsem.stderr
   kill %1 || true
 " 2> >(grep -v 'graph driver' >&2)
-python3 - "$d/io.samples" <<'EOF'
+python3 - "$d/io.samples" > "runs/io_p$P.txt" <<'EOF'
 import sys
 last = {}
 for line in open(sys.argv[1]):
@@ -27,4 +27,5 @@ for pid, (cmd, r, w) in sorted(last.items(), key=lambda x: -x[1][1]):
 # A parent's /proc/<pid>/io includes the counters of children it has reaped, so the
 # rsem-calculate-expression (perl) row is the task total; summing the rows double-counts.
 EOF
-ls -la aln/S.Aligned.toTranscriptome.out.bam
+echo "input: aln/S.Aligned.toTranscriptome.out.bam, $(stat -c %s aln/S.Aligned.toTranscriptome.out.bam) bytes" >> "runs/io_p$P.txt"
+cat "runs/io_p$P.txt"

@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 RSEM_IMG=community.wave.seqera.io/library/rsem_star:5acb4e8c03239c32
 THREADS="${THREADS:-1 2 4 8 12}"
 mkdir -p runs; chmod 777 runs
-[ -s runs/summary.tsv ] || echo -e "threads\twall_s\tuser_s\tsys_s\tcpu_pct\tpeak_mem_bytes" > runs/summary.tsv
+echo -e "threads\twall_s\tuser_s\tsys_s\tcpu_pct\tpeak_mem_bytes" > runs/summary.tsv   # one fresh table per invocation
 for p in $THREADS; do
   d=runs/p$p; podman unshare rm -rf "$d"; mkdir -p "$d"; chmod 777 "$d"
   podman run --rm --userns=keep-id --cpus="$p" -v "$PWD":/w -w /w/$d $RSEM_IMG bash -c "
@@ -24,6 +24,7 @@ for p in $THREADS; do
   wall=$(python3 -c "print(round($e-$s,1))"); pct=$(python3 -c "print(round(100*($u+$sy)/($e-$s)))")
   echo -e "$p\t$wall\t$u\t$sy\t$pct\t$(cat $d/peak.txt)" >> runs/summary.tsv
   tail -1 runs/summary.tsv
+  tr '\n' ' ' < "$d/S.time" > "runs/p$p.time"; echo >> "runs/p$p.time"   # RSEM --time, one line
 done
 ( cd runs && sha256sum p*/S.genes.results p*/S.isoforms.results ) > runs/hashes.txt
 echo BENCH_DONE
