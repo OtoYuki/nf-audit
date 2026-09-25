@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build chr1 references and the STAR transcriptome BAM exactly as nf-core/rnaseq 3.22.0 does
 # for --aligner star_rsem (STAR_ALIGN_IGENOMES args from subworkflows/local/align_star/nextflow.config,
-# RSEM_PREPAREREFERENCE with no extra args). Only difference: chr1 instead of the whole genome.
+# RSEM_PREPAREREFERENCE with no extra args). Differences: chr1 instead of the whole genome, and the
+# STAR index is built here rather than taken from iGenomes.
 set -euo pipefail
 cd "$(dirname "$0")"
 STAR_IMG=quay.io/biocontainers/mulled-v2-1fa26d1ce03c295fe2fdcf85831a92fbcbd7e8c2:59cdd445419f14abac76b31dd0d71217994cbcc9-0
@@ -18,7 +19,7 @@ if [ ! -s star/SA ]; then
   run $STAR_IMG "STAR --runMode genomeGenerate --genomeDir star --genomeFastaFiles ref/chr1.fa --sjdbGTFfile ref/chr1.gtf --sjdbOverhang 100 --runThreadN 12 --outFileNamePrefix star/"
 fi
 
-# RSEM reference (RSEM 1.3.1, same as RSEM_CALCULATEEXPRESSION in 3.22.0)
+# RSEM reference (conda rsem 1.3.3, whose binary reports v1.3.1; same image as RSEM_CALCULATEEXPRESSION in 3.22.0)
 if [ ! -s rsem/genome.grp ]; then
   mkdir -p rsem
   run $RSEM_IMG "rsem-prepare-reference --gtf ref/chr1.gtf --num-threads 12 ref/chr1.fa rsem/genome"

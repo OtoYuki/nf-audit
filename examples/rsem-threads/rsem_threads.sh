@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Run RSEM_CALCULATEEXPRESSION's exact 3.22.0 command line at several --num-threads values,
-# each in a container capped to that many CPUs (as AWS Batch caps the task), and record
-# wall time, user+sys CPU, cgroup peak memory, RSEM's own per-step timing (--time) and output hashes.
+# Run RSEM_CALCULATEEXPRESSION's 3.22.0 command line (plus --time) at several --num-threads values,
+# each in a container capped to that many CPUs with --cpus, and record wall time, user+sys CPU,
+# the cgroup's memory.peak (includes page cache), RSEM's own per-step timing and output hashes.
 set -euo pipefail
 cd "$(dirname "$0")"
 RSEM_IMG=community.wave.seqera.io/library/rsem_star:5acb4e8c03239c32
