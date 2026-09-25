@@ -1,6 +1,6 @@
 # Does `RSEM_CALCULATEEXPRESSION` use its 12 CPUs?
 
-In nf-core/rnaseq's AWS full-size tests (`--aligner star_rsem`, 3.22.0 onward), `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB. Its completed tasks average about one core (median 104%, interquartile range 94–131%, mean 120% over 45 tasks; range 25–511%) and peak at or below 9.45 GiB. This directory tests whether that is RSEM itself or the environment, by running the pipeline's own command line locally at several thread counts.
+In nf-core/rnaseq's AWS full-size tests (`--aligner star_rsem`, 3.22.0 onward), `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB. Its completed tasks average about one core (median 104%, quartiles 94–131% by the inclusive method, mean 120% over 45 tasks; range 25–511%) and peak at or below 9.45 GiB. This directory tests whether that is RSEM itself or the environment, by running the pipeline's own command line locally at several thread counts.
 
 ## What is reproduced
 
@@ -31,7 +31,7 @@ Hardware: a laptop with an 8-core / 16-thread i7-11800H (so the 12-thread run re
 - **Output:** `S.genes.results` and `S.isoforms.results` have the same sha256 at every thread count (`runs/hashes.txt`).
 - **STAR:** 96.55% of input pairs uniquely mapped on chr1 (`runs/star_chr1_log.txt`).
 - **Parse step alone** (`rsem_parse_only.sh`, output in `runs/parse_only_p1.txt`): `rsem-parse-alignments` at 1 CPU took 92.5–97.7 s over two runs for 18 M alignment entries (~184–195 k entries/s).
-  - This is the single-threaded step in which three timed-out megatest tasks logged their last line: 3.22.1 `Parsed 245000000 entries`, 3.23.0 `255000000`, 3.24.0 `73000000`.
+  - This is the single-threaded step in which three timed-out megatest tasks logged their last line: 3.22.1 `Parsed 245000000 entries`, 3.23.0 `255000000`, 3.24.0 `73000000`. The same holds for six of seven timed-out `dev`-branch runs; the seventh stopped while writing the output BAM after EM.
   - Over their 16 h, those tasks averaged about 4.3 k, 4.4 k and 1.3 k entries/s.
 - **I/O** (`runs/io_p12.txt`, a separate 12-thread run): the task read 37.42 GB and wrote 4.52 GB for a 1.71 GB input BAM. Most of the reading is `rsem-run-em`, 33.09 GB.
 
@@ -58,4 +58,9 @@ Hardware: a laptop with an 8-core / 16-thread i7-11800H (so the 12-thread run re
 
 Needs podman and about 25 GB of disk. The working directory reached 22 GB: about 10 GB is the six runs' ~1.6 GB `S.transcript.bam` files, and the rest is the STAR index, alignments, reads and parse-only temp files.
 
-The files in `runs/` come from these scripts: `summary.tsv`, `hashes.txt` and `p*.time` from `rsem_threads.sh`, `io_p12.txt` from `rsem_io.sh` (plus two hand-added comment lines), and `parse_only_p1.txt` from `rsem_parse_only.sh` (the first of its two runs was typed in by hand from the same command). Do not run it under a RAM-backed `/tmp`: the first attempt at this silently produced truncated BAMs when the tmpfs filled.
+The numbers in `runs/` come from earlier versions of these scripts. The committed versions differ only in comments and in where they write their output.
+- `p*.time` are copies of each run's `S.time`.
+- `summary.tsv` is from `THREADS="12 1 2 4 8"`.
+- `star_chr1_log.txt` is two lines copied from `aln/S.Log.final.out`.
+- `io_p12.txt` is `rsem_io.sh`'s table plus hand-added comment and input-size lines.
+- `parse_only_p1.txt`: the first run was typed in by hand, and its comment lines were added by hand. Do not run it under a RAM-backed `/tmp`: the first attempt at this silently produced truncated BAMs when the tmpfs filled.
