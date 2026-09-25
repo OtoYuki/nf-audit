@@ -1,0 +1,9 @@
+     43 /opt/conda/bin/perl/opt/conda/bin/rsem-  rchar    37.42 GB  wchar    4.52 GB
+   5195 rsem-run-em/w/rsem/genome3S./tmp//S      rchar    33.09 GB  wchar    1.62 GB
+   5038 rsem-build-read-index3210./tmp//S_al     rchar     2.41 GB  wchar    0.01 GB
+     45 rsem-parse-alignments/w/rsem/genome./t   rchar     1.72 GB  wchar    2.86 GB
+     42 bash-c                                   rchar     0.10 GB  wchar    0.00 GB
+      1 bash-c                                   rchar     0.00 GB  wchar    0.00 GB
+# The perl row (rsem-calculate-expression) includes its reaped children: task total = 37.42 GB read, 4.52 GB written.
+# (The first version of this script summed the rows, which double-counts.)
+input: aln/S.Aligned.toTranscriptome.out.bam, 1707446687 bytes

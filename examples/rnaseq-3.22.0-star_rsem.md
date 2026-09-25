@@ -42,6 +42,28 @@
 | FQ_LINT | 8 | 57m | $0.47 | 0% | 47% | 5% | $0.37 | 0 | 0 |
 | BEDTOOLS_GENOMECOV_FW | 8 | 1.1h | $0.27 | 0% | 96% | 55% | $0.08 | 0 | 0 |
 
+## Cost by task tag (top 20)
+
+The tag is the text in parentheses after the process name. nf-core pipelines usually tag with the sample ID, which makes this a per-sample cost; other tags (lanes, intervals, reference files) show up as their own rows. Tagged tasks carry 100.0% of the cost.
+
+| tag | tasks | processes | run time | cost | share | waste |
+|---|---:|---:|---:|---:|---:|---:|
+| MCF7_REP2 | 36 | 36 | 17.8h | $42.45 | 14% | $35.60 |
+| H1_REP1 | 36 | 36 | 17.8h | $40.87 | 14% | $34.20 |
+| MCF7_REP1 | 36 | 36 | 17.2h | $39.99 | 14% | $33.70 |
+| K562_REP2 | 36 | 36 | 16.1h | $38.64 | 13% | $32.39 |
+| H1_REP2 | 36 | 36 | 14.7h | $35.18 | 12% | $29.64 |
+| GM12878_REP2 | 36 | 36 | 13.8h | $32.65 | 11% | $27.49 |
+| GM12878_REP1 | 36 | 36 | 14.1h | $32.25 | 11% | $27.12 |
+| K562_REP1 | 36 | 36 | 13.8h | $31.19 | 11% | $26.44 |
+| genome.transcripts.fa | 1 | 1 | 27m | $0.69 | 0% | $0.28 |
+| rsem/genome.fa | 2 | 2 | 5m | $0.27 | 0% | $0.26 |
+| all_samples | 2 | 2 | 1m | $0.04 | 0% | $0.03 |
+| (untagged) | 4 | 4 | 1m | $0.03 | 0% | $0.02 |
+| 1 | 1 | 1 | 1m | $0.01 | 0% | $0.00 |
+| genome.fa | 2 | 2 | 1m | $0.01 | 0% | $0.00 |
+| null | 1 | 1 | 1m | $0.00 | 0% | $0.00 |
+
 ## Right-sizing (margin applied to observed peaks): est. saving $222.61 (76%)
 
 | process | cpus now → new | memory now → new | time now → new | est. saving |

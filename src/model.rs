@@ -48,6 +48,16 @@ impl Task {
         }
     }
 
+    /// The task tag: the text inside the parentheses after the process name, e.g. `SRX1603629_T1`
+    /// in `...:STAR_ALIGN (SRX1603629_T1)`. nf-core pipelines usually tag with the sample ID, but a
+    /// tag can equally be a lane, an interval or a reference file, so callers must not assume it
+    /// names a sample. `None` when the task has no tag.
+    pub fn tag_from_name(name: &str) -> Option<String> {
+        let start = name.find(" (")? + 2;
+        let inner = name[start..].strip_suffix(')')?;
+        Some(inner.to_string())
+    }
+
     pub fn succeeded(&self) -> bool {
         matches!(self.status.as_str(), "COMPLETED" | "CACHED")
     }
@@ -211,5 +221,34 @@ mod tests {
             Task::process_from_name("NFCORE_RNASEQ:RNASEQ:ALIGN_STAR:STAR_ALIGN (SRX1)"),
             "NFCORE_RNASEQ:RNASEQ:ALIGN_STAR:STAR_ALIGN"
         );
+    }
+
+    #[test]
+    fn tag_name() {
+        // Shapes seen in the rnaseq and sarek megatest reports.
+        let tag = |n| Task::tag_from_name(n);
+        assert_eq!(
+            tag("NFCORE_RNASEQ:RNASEQ:QUANTIFY_RSEM:RSEM_CALCULATEEXPRESSION (H1_REP2)").as_deref(),
+            Some("H1_REP2")
+        );
+        assert_eq!(
+            tag(
+                "NFCORE_SAREK:PREPARE_INTERVALS:TABIX_BGZIPTABIX_INTERVAL_SPLIT (chr1_11981-12351)"
+            )
+            .as_deref(),
+            Some("chr1_11981-12351")
+        );
+        assert_eq!(
+            tag("NFCORE_SAREK:SAREK:FASTQ_ALIGN_GATK:FASTP (HCC1395T-1)").as_deref(),
+            Some("HCC1395T-1")
+        );
+        assert_eq!(
+            tag("NFCORE_RNASEQ:PREPARE_GENOME:RSEM_PREPAREREFERENCE_GENOME (rsem/genome.fa)")
+                .as_deref(),
+            Some("rsem/genome.fa")
+        );
+        assert_eq!(tag("NFCORE_RNASEQ:RNASEQ:MULTIQC"), None);
+        // A tag that itself contains parentheses keeps them.
+        assert_eq!(tag("P:X (a (b))").as_deref(), Some("a (b)"));
     }
 }

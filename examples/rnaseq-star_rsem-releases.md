@@ -1,7 +1,7 @@
 # nf-audit compare
 
 - rates: `seqera-compute` ($0.1000/CPU-h, $0.0250/GiB-h)
-- runs: 20
+- runs: 31
 
 ## Runs
 
@@ -10,6 +10,9 @@
 | 3.1 rsem 2021-05-14 | 21.04.0 | ? | 273 | 0 | 16h 33m 44s | 750 | 4501 | $187.53 | 273/273 | 64% | RSEM_CALCULATEEXPRESSION 42% |
 | 3.2 rsem 2021-06-18 | 21.04.0 | ? | 273 | 0 | 15h 52m 58s | 773 | 4640 | $193.35 | 273/273 | 65% | RSEM_CALCULATEEXPRESSION 42% |
 | 3.3 rsem 2021-07-29 | 21.04.0 | ? | 273 | 0 | 17h 20m 12s | 738 | 4431 | $184.62 | 273/273 | 64% | RSEM_CALCULATEEXPRESSION 41% |
+| 3.4 rsem 2021-10-07 | 21.08.0.edge | ? | 273 | 0 | 13h 58m 19s | 741 | 4444 | $185.15 | 273/273 | 65% | RSEM_CALCULATEEXPRESSION 42% |
+| 3.5 rsem 2021-12-20 | 21.10.3 | ? | 289 | 8 | 1d 4h 50m 38s | 1242 | 7696 | $316.58 | 281/289 | 76% | RSEQC_TIN 34% |
+| 3.6 rsem 2022-03-09 | 22.02.1.edge | ? | 286 | 13 | 12h 25m 15s | 896 | 5918 | $237.56 | 273/286 | 70% | RSEM_CALCULATEEXPRESSION 48% |
 | 3.7 rsem 2022-05-03 | 22.04.0 | ? | 273 | 0 | 13h 32m 45s | 756 | 4533 | $188.88 | 273/273 | 65% | RSEM_CALCULATEEXPRESSION 42% |
 | 3.8 rsem 2022-05-25 | 22.04.2 | ? | 273 | 0 | 9h 59m 35s | 710 | 4260 | $177.51 | 273/273 | 65% | RSEM_CALCULATEEXPRESSION 39% |
 | 3.8.1 rsem 2022-05-27 | 22.04.2 | ? | 273 | 0 | 9h 43m 52s | 736 | 4414 | $183.90 | 273/273 | 65% | RSEM_CALCULATEEXPRESSION 39% |
@@ -26,13 +29,24 @@
 | 3.17.0 rsem 2024-10-24 | 24.04.4 | 2.3 | 271 | 0 | 11h 2m 57s | 725 | 4352 | $181.34 | 271/271 | 69% | RSEM_CALCULATEEXPRESSION 67% |
 | 3.18.0 rsem 2024-12-20 | 24.10.3 | 2.4 | 292 | 5 | 21h 3m 48s | 1823 | 10938 | $455.75 | 287/292 | 78% | RSEM_CALCULATEEXPRESSION 86% |
 | 3.22.0 rsem 2025-11-27 | 25.04.8 | 2.4 | 301 | 0 | 12h 57m 8s | 1177 | 7062 | $294.25 | 301/301 | 84% | RSEM_CALCULATEEXPRESSION 75% |
+| 3.22.1 rsem 2025-12-05 | 25.04.8 | 2.4 | 298 | 2 | 19h 13m 49s | 997 | 5979 | $249.13 | 296/298 | 81% | RSEM_CALCULATEEXPRESSION 71% |
 | 3.22.2 rsem 2025-12-12 | 25.04.8 | 2.4 | 301 | 0 | 16h 39m 3s | 1066 | 6394 | $266.43 | 301/301 | 81% | RSEM_CALCULATEEXPRESSION 69% |
+| 3.23.0 rsem 2026-02-27 | 25.10.2 | 2.4 | 298 | 2 | 17h 49m 49s | 1189 | 7134 | $297.25 | 296/298 | 83% | RSEM_CALCULATEEXPRESSION 74% |
+| 3.24.0 rsem 2026-04-09 | 25.10.4 | 2.4 | 299 | 5 | 18h 5m 25s | 849 | 5094 | $212.26 | 294/299 | 80% | RSEM_CALCULATEEXPRESSION 61% |
+| 3.25.0 rsem 2026-04-24 | 25.10.4 | 2.4 | 323 | 2 | 20h 3m 56s | 1152 | 6910 | $287.93 | 321/323 | 82% | RSEM_CALCULATEEXPRESSION 74% |
+| 3.27.0 rsem 2026-09-23 | 26.04.6 | 2.5 | 332 | 2 | 1d 10h 2m 58s | 1865 | 11107 | $464.22 | 330/332 | 87% | RSEM_CALCULATEEXPRESSION 89% |
+| master rsem 2023-11-17 | 23.10.0 | ? | 264 | 0 | 11h 3m 22s | 851 | 5106 | $212.73 | 264/264 | 68% | RSEM_CALCULATEEXPRESSION 68% |
+| master rsem 2023-11-17 | 23.10.0 | ? | 264 | 0 | 10h 58m 40s | 832 | 4991 | $207.95 | 264/264 | 68% | RSEM_CALCULATEEXPRESSION 67% |
+| master rsem 2023-11-21 | 23.10.0 | ? | 264 | 0 | 10h 49m 59s | 853 | 5121 | $213.36 | 264/264 | 68% | RSEM_CALCULATEEXPRESSION 68% |
 
 Sources:
 
 - 3.1 rsem 2021-05-14 — `data/rnaseq/results-0fcbb0ac491ecb8a80ef879c4f3dad5f869021f9/aligner_star_rsem/pipeline_info/execution_report_2021-05-14_00-07-35.html`
 - 3.2 rsem 2021-06-18 — `data/rnaseq/results-b3ff92bc54363faf17d820689a8e9074ffd99045/aligner_star_rsem/pipeline_info/execution_report_2021-06-18_14-07-00.html`
 - 3.3 rsem 2021-07-29 — `data/rnaseq/results-8094c42add6dcdf69ce54dfdec957789c37ae903/aligner_star_rsem/pipeline_info/execution_report_2021-07-29_13-47-30.html`
+- 3.4 rsem 2021-10-07 — `data/rnaseq/results-964425e3fd8bfc3dc7bce43279a98d17a874d3f7/aligner_star_rsem/pipeline_info/execution_report_2021-10-07_12-00-32.html`
+- 3.5 rsem 2021-12-20 — `data/rnaseq/results-646723c70f04ee6d66391758b02822d4f0fe2966/aligner_star_rsem/pipeline_info/execution_report_2021-12-20_22-43-35.html`
+- 3.6 rsem 2022-03-09 — `data/rnaseq/results-7106bd792b3fb04f9f09b4e737165fa4e736ea81/aligner_star_rsem/pipeline_info/execution_report_2022-03-09_11-12-45.html`
 - 3.7 rsem 2022-05-03 — `data/rnaseq/results-e0dfce9af5c2299bcc2b8a74b6559ce055965455/aligner_star_rsem/pipeline_info/execution_report_2022-05-03_11-19-16.html`
 - 3.8 rsem 2022-05-25 — `data/rnaseq/results-6995330476244a6bffe55ddcbe50b8ed5cf6c2e2/aligner_star_rsem/pipeline_info/execution_report_2022-05-25_09-53-33.html`
 - 3.8.1 rsem 2022-05-27 — `data/rnaseq/results-89bf536ce4faa98b4d50a8ec0a0343780bc62e0a/aligner_star_rsem/pipeline_info/execution_report_2022-05-27_16-42-07.html`
@@ -49,23 +63,31 @@ Sources:
 - 3.17.0 rsem 2024-10-24 — `data/rnaseq/results-00f924cf92a986a842bb352b3c4ae379c773c989/aligner_star_rsem/pipeline_info/execution_report_2024-10-24_11-33-52.html`
 - 3.18.0 rsem 2024-12-20 — `data/rnaseq/results-b96a75361a4f1d49aa969a2b1c68e3e607de06e8/aligner_star_rsem/pipeline_info/execution_report_2024-12-20_16-55-31.html`
 - 3.22.0 rsem 2025-11-27 — `data/rnaseq/results-c522f87e1406ede19f9df9593d00c3c404684790/aligner_star_rsem/pipeline_info/execution_report_2025-11-27_10-50-37.html`
+- 3.22.1 rsem 2025-12-05 — `data/rnaseq/results-759dbf125280e6faeaa4194dd74f872d224fc327/aligner_star_rsem/pipeline_info/execution_report_2025-12-05_18-27-06.html`
 - 3.22.2 rsem 2025-12-12 — `data/rnaseq/results-3816d48abd9fab2eee41775b60b4eb8745e1fcaa/aligner_star_rsem/pipeline_info/execution_report_2025-12-12_10-02-14.html`
+- 3.23.0 rsem 2026-02-27 — `data/rnaseq/results-13328f73915ceda9bb794caee2f662230c5a33b6/aligner_star_rsem/pipeline_info/execution_report_2026-02-27_16-55-50.html`
+- 3.24.0 rsem 2026-04-09 — `data/rnaseq/results-47b3b0d3daad69e99d45c9e2dd8db19ee28307a1/aligner_star_rsem/pipeline_info/execution_report_2026-04-09_16-53-16.html`
+- 3.25.0 rsem 2026-04-24 — `data/rnaseq/results-891468c53574d531ae3f75b3a558552839cf973d/aligner_star_rsem/pipeline_info/execution_report_2026-04-24_16-05-18.html`
+- 3.27.0 rsem 2026-09-23 — `data/rnaseq/results-a1fcdddd3b826fe46eb46f0479f2ff8a7815af05/aligner_star_rsem/pipeline_info/execution_report_2026-09-23_13-00-35.html`
+- master rsem 2023-11-17 — `data/rnaseq/results-14f9d26444e08da7b51ddcb1b8c4e0703edde375/aligner_star_rsem/pipeline_info/execution_report_2023-11-17_15-32-05.html`
+- master rsem 2023-11-17 — `data/rnaseq/results-b59e87a54eae60e02f9ae12e3b9c9c59959328d7/aligner_star_rsem/pipeline_info/execution_report_2023-11-17_18-06-31.html`
+- master rsem 2023-11-21 — `data/rnaseq/results-a10f41afa204538d5dcc89a5910c299d68f94f41/aligner_star_rsem/pipeline_info/execution_report_2023-11-21_11-38-50.html`
 
 ## Cost share by process (top 12, % of each run's cost)
 
-| process | 3.1 rsem 2021-05-14 | 3.2 rsem 2021-06-18 | 3.3 rsem 2021-07-29 | 3.7 rsem 2022-05-03 | 3.8 rsem 2022-05-25 | 3.8.1 rsem 2022-05-27 | 3.9 rsem 2022-09-30 | 3.10.1 rsem 2023-01-05 | 3.11.1 rsem 2023-03-31 | 3.11.2 rsem 2023-04-25 | 3.12.0 rsem 2023-06-02 | 3.14.0 rsem 2024-01-08 | 3.15.0 rsem 2024-09-05 | 3.15.1 rsem 2024-09-17 | 3.16.0 rsem 2024-10-02 | 3.16.1 rsem 2024-10-16 | 3.17.0 rsem 2024-10-24 | 3.18.0 rsem 2024-12-20 | 3.22.0 rsem 2025-11-27 | 3.22.2 rsem 2025-12-12 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| RSEM_CALCULATEEXPRESSION | 42 | 42 | 41 | 42 | 39 | 39 | 43 | 45 | 66 | 64 | 66 | 68 | 66 | 67 | 64 | 65 | 67 | 86 | 75 | 69 |
-| QUALIMAP_RNASEQ | 13 | 13 | 13 | 12 | 12 | 12 | 13 | 14 | 9 | 10 | 9 | 9 | 10 | 10 | 10 | 10 | 10 | 4 | 2 | 3 |
-| TRIMGALORE | 14 | 15 | 15 | 14 | 15 | 15 | 12 | 13 | 8 | 8 | 7 | 7 | 8 | 7 | 8 | 8 | 7 | 3 | 5 | 5 |
-| PICARD_MARKDUPLICATES | 7 | 7 | 7 | 7 | 7 | 7 | 8 | 8 | 5 | 5 | 5 | 4 | 5 | 4 | 5 | 5 | 5 | 2 | 3 | 4 |
-| SALMON_QUANT | 3 | 3 | 3 | 5 | 5 | 6 | 6 | 3 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 1 | 1 | 2 |
-| RSEQC_READDUPLICATION | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| BEDTOOLS_GENOMECOV | 2 | 2 | 3 | 2 | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 2 | · | · | · | · | · | · | · | · |
-| STAR_ALIGN_IGENOMES | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | 7 | 9 |
-| FASTQC | 1 | 1 | 1 | 1 | 1 | 1 | 2 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 |
-| PRESEQ_LCEXTRAP | 3 | 3 | 4 | 3 | 4 | 3 | 1 | · | · | · | · | · | · | · | · | · | · | · | · | · |
-| RSEQC_READDISTRIBUTION | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 |
-| DUPRADAR | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| process | 3.1 rsem 2021-05-14 | 3.2 rsem 2021-06-18 | 3.3 rsem 2021-07-29 | 3.4 rsem 2021-10-07 | 3.5 rsem 2021-12-20 | 3.6 rsem 2022-03-09 | 3.7 rsem 2022-05-03 | 3.8 rsem 2022-05-25 | 3.8.1 rsem 2022-05-27 | 3.9 rsem 2022-09-30 | 3.10.1 rsem 2023-01-05 | 3.11.1 rsem 2023-03-31 | 3.11.2 rsem 2023-04-25 | 3.12.0 rsem 2023-06-02 | 3.14.0 rsem 2024-01-08 | 3.15.0 rsem 2024-09-05 | 3.15.1 rsem 2024-09-17 | 3.16.0 rsem 2024-10-02 | 3.16.1 rsem 2024-10-16 | 3.17.0 rsem 2024-10-24 | 3.18.0 rsem 2024-12-20 | 3.22.0 rsem 2025-11-27 | 3.22.1 rsem 2025-12-05 | 3.22.2 rsem 2025-12-12 | 3.23.0 rsem 2026-02-27 | 3.24.0 rsem 2026-04-09 | 3.25.0 rsem 2026-04-24 | 3.27.0 rsem 2026-09-23 | master rsem 2023-11-17 | master rsem 2023-11-17 | master rsem 2023-11-21 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| RSEM_CALCULATEEXPRESSION | 42 | 42 | 41 | 42 | 31 | 48 | 42 | 39 | 39 | 43 | 45 | 66 | 64 | 66 | 68 | 66 | 67 | 64 | 65 | 67 | 86 | 75 | 71 | 69 | 74 | 61 | 74 | 89 | 68 | 67 | 68 |
+| TRIMGALORE | 14 | 15 | 15 | 15 | 9 | 17 | 14 | 15 | 15 | 12 | 13 | 8 | 8 | 7 | 7 | 8 | 7 | 8 | 8 | 7 | 3 | 5 | 5 | 5 | 5 | 6 | 5 | 0 | 7 | 7 | 7 |
+| QUALIMAP_RNASEQ | 13 | 13 | 13 | 13 | 7 | 10 | 12 | 12 | 12 | 13 | 14 | 9 | 10 | 9 | 9 | 10 | 10 | 10 | 10 | 10 | 4 | 2 | 3 | 3 | 2 | 3 | 2 | 1 | 9 | 9 | 9 |
+| PICARD_MARKDUPLICATES | 7 | 7 | 7 | 7 | 4 | 6 | 7 | 7 | 7 | 8 | 8 | 5 | 5 | 5 | 4 | 5 | 4 | 5 | 5 | 5 | 2 | 3 | 3 | 4 | 3 | 4 | 3 | 2 | 4 | 4 | 4 |
+| SALMON_QUANT | 3 | 3 | 3 | 3 | 2 | 2 | 5 | 5 | 6 | 6 | 3 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 1 | 1 | 1 | 2 | 1 | 2 | 1 | 1 | 2 | 2 | 2 |
+| STAR_ALIGN_IGENOMES | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | 7 | 9 | 9 | 7 | 12 | 7 | · | · | · | · |
+| RSEQC_TIN | · | · | · | · | 34 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · |
+| RSEQC_READDUPLICATION | 2 | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 2 | 1 | 1 | 1 | 1 | 1 |
+| BEDTOOLS_GENOMECOV | 2 | 2 | 3 | 2 | 1 | 2 | 2 | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 2 | · | · | · | · | · | · | · | · | · | · | · | · | · | 2 | 2 | 2 |
+| DUPRADAR | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 3 | 2 | 0 | 1 | 1 | 1 |
+| FASTQC | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 2 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | 1 | 1 | 1 |
+| PRESEQ_LCEXTRAP | 3 | 3 | 4 | 4 | 2 | 3 | 3 | 4 | 3 | 1 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · |
 
 `·` = process absent from that run.

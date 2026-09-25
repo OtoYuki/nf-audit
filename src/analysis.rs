@@ -1,7 +1,7 @@
 //! Per-process aggregation, cost model and right-sizing recommendations.
 
 use crate::model::Task;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
@@ -101,10 +101,44 @@ impl ProcessStats {
     }
 }
 
+/// Cost grouped by task tag (see [`Task::tag_from_name`]). In nf-core pipelines the tag is
+/// usually the sample ID, which makes this a per-sample cost, but the tag is whatever the
+/// pipeline author chose, so the table says "tag", not "sample".
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TagStats {
+    /// `None` collects every task without a tag.
+    pub tag: Option<String>,
+    pub tasks: usize,
+    /// Distinct processes that ran under this tag.
+    pub processes: usize,
+    pub realtime_h: f64,
+    pub cost: f64,
+    pub failed_cost: f64,
+    pub tasks_with_metrics: usize,
+    pub cpu_h_req_metered: f64,
+    pub cpu_h_used: f64,
+    pub gib_h_req_metered: f64,
+    pub gib_h_used: f64,
+}
+
+impl TagStats {
+    /// Same definition as [`ProcessStats::waste`], over this tag's tasks.
+    pub fn waste(&self, r: &Rates) -> Option<f64> {
+        if self.tasks_with_metrics == 0 {
+            return None;
+        }
+        let cpu_waste = (self.cpu_h_req_metered - self.cpu_h_used).max(0.0) * r.cpu_hour;
+        let mem_waste = (self.gib_h_req_metered - self.gib_h_used).max(0.0) * r.gib_hour;
+        Some(cpu_waste + mem_waste)
+    }
+}
+
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RunStats {
     pub tasks: usize,
     pub processes: Vec<ProcessStats>,
+    /// Cost by task tag, most expensive first.
+    pub tags: Vec<TagStats>,
     pub total_cost: f64,
     pub total_waste: f64,
     pub failed_cost: f64,
@@ -124,6 +158,7 @@ pub struct RunStats {
 
 pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
     let mut by_proc: BTreeMap<String, ProcessStats> = BTreeMap::new();
+    let mut by_tag: BTreeMap<Option<String>, (TagStats, BTreeSet<String>)> = BTreeMap::new();
     let mut run = RunStats {
         tasks: tasks.len(),
         ..Default::default()
@@ -172,35 +207,81 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         }
 
         // Requested resources: what the scheduler had to reserve, hence what is billed.
-        match (cpus_req, mem_req_gib) {
+        let (cost, cpu_h_req_metered, gib_h_req_metered) = match (cpus_req, mem_req_gib) {
             (Some(c), Some(m)) => {
                 p.has_requests = true;
                 p.cpu_h_requested += c * hours;
                 p.gib_h_requested += m * hours;
-                if has_metrics {
-                    p.cpu_h_req_metered += c * hours;
-                    p.gib_h_req_metered += m * hours;
-                }
                 p.max_cpus_requested = p.max_cpus_requested.max(c);
                 p.max_mem_requested_gib = p.max_mem_requested_gib.max(m);
-                let cost = c * hours * rates.cpu_hour + m * hours * rates.gib_hour;
-                p.cost += cost;
-                if failed {
-                    p.failed_cost += cost;
-                }
+                let metered = if has_metrics {
+                    (c * hours, m * hours)
+                } else {
+                    (0.0, 0.0)
+                };
+                (
+                    c * hours * rates.cpu_hour + m * hours * rates.gib_hour,
+                    metered.0,
+                    metered.1,
+                )
             }
             _ => {
                 // No request data (plain TSV trace): fall back to pricing what was used, and
                 // flag it so the report says the number is a floor, not an audit.
                 run.tasks_without_requests += 1;
-                let cost = cpu_h_used * rates.cpu_hour + gib_h_used * rates.gib_hour;
-                p.cost += cost;
-                if failed {
-                    p.failed_cost += cost;
-                }
+                (
+                    cpu_h_used * rates.cpu_hour + gib_h_used * rates.gib_hour,
+                    0.0,
+                    0.0,
+                )
             }
+        };
+        p.cost += cost;
+        p.cpu_h_req_metered += cpu_h_req_metered;
+        p.gib_h_req_metered += gib_h_req_metered;
+        if failed {
+            p.failed_cost += cost;
+        }
+
+        let tag = Task::tag_from_name(&t.name);
+        let (g, procs) = by_tag.entry(tag.clone()).or_insert_with(|| {
+            (
+                TagStats {
+                    tag,
+                    ..Default::default()
+                },
+                BTreeSet::new(),
+            )
+        });
+        procs.insert(t.process.clone());
+        g.tasks += 1;
+        g.realtime_h += hours;
+        g.cost += cost;
+        if failed {
+            g.failed_cost += cost;
+        }
+        if has_metrics {
+            g.tasks_with_metrics += 1;
+            g.cpu_h_used += cpu_h_used;
+            g.gib_h_used += gib_h_used;
+            g.cpu_h_req_metered += cpu_h_req_metered;
+            g.gib_h_req_metered += gib_h_req_metered;
         }
     }
+
+    let mut tags: Vec<TagStats> = by_tag
+        .into_values()
+        .map(|(mut g, procs)| {
+            g.processes = procs.len();
+            g
+        })
+        .collect();
+    tags.sort_by(|a, b| {
+        b.cost
+            .partial_cmp(&a.cost)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    run.tags = tags;
 
     let mut procs: Vec<ProcessStats> = by_proc.into_values().collect();
     procs.sort_by(|a, b| {
@@ -350,6 +431,29 @@ mod tests {
             assert!(r.mem_new_gib <= r.mem_now_gib);
             assert!(r.cpus_new >= 1 && r.mem_new_gib >= 1.0);
         }
+    }
+
+    #[test]
+    fn cost_by_tag_partitions_the_run() {
+        let run = analyse(&fixtures(), &Rates::SEQERA_COMPUTE);
+        // 8 sample tags plus MULTIQC, which has no tag.
+        assert_eq!(run.tags.len(), 9);
+        let tasks: usize = run.tags.iter().map(|g| g.tasks).sum();
+        assert_eq!(tasks, run.tasks);
+        let cost: f64 = run.tags.iter().map(|g| g.cost).sum();
+        assert!((cost - run.total_cost).abs() < 1e-9);
+        assert!(run.tags.windows(2).all(|w| w[0].cost >= w[1].cost));
+
+        let untagged = run.tags.iter().find(|g| g.tag.is_none()).unwrap();
+        assert_eq!((untagged.tasks, untagged.processes), (1, 1));
+        // Retried STAR and PICARD attempts count as tasks of the same tag.
+        let s = run
+            .tags
+            .iter()
+            .find(|g| g.tag.as_deref() == Some("SRX1603392_T1"))
+            .unwrap();
+        assert_eq!((s.tasks, s.processes), (6, 4));
+        assert!(s.waste(&Rates::SEQERA_COMPUTE).unwrap() <= s.cost);
     }
 
     #[test]

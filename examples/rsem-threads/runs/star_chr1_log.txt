@@ -1,0 +1,2 @@
+                          Number of input reads |	7792588
+                        Uniquely mapped reads % |	96.55%
