@@ -1,7 +1,7 @@
 # nf-audit compare
 
 - rates: `seqera-compute` ($0.1000/CPU-h, $0.0250/GiB-h)
-- runs: 20
+- runs: 24
 
 ## Runs
 
@@ -27,6 +27,10 @@
 | 3.18.0 rsem 2024-12-20 | 24.10.3 | 2.4 | 292 | 5 | 21h 3m 48s | 1823 | 10938 | $455.75 | 287/292 | 78% | RSEM_CALCULATEEXPRESSION 86% |
 | 3.22.0 rsem 2025-11-27 | 25.04.8 | 2.4 | 301 | 0 | 12h 57m 8s | 1177 | 7062 | $294.25 | 301/301 | 84% | RSEM_CALCULATEEXPRESSION 75% |
 | 3.22.2 rsem 2025-12-12 | 25.04.8 | 2.4 | 301 | 0 | 16h 39m 3s | 1066 | 6394 | $266.43 | 301/301 | 81% | RSEM_CALCULATEEXPRESSION 69% |
+| 3.23.0 rsem 2026-02-27 | 25.10.2 | 2.4 | 298 | 2 | 17h 49m 49s | 1189 | 7134 | $297.25 | 296/298 | 83% | RSEM_CALCULATEEXPRESSION 74% |
+| 3.24.0 rsem 2026-04-09 | 25.10.4 | 2.4 | 299 | 5 | 18h 5m 25s | 849 | 5094 | $212.26 | 294/299 | 80% | RSEM_CALCULATEEXPRESSION 61% |
+| 3.25.0 rsem 2026-04-24 | 25.10.4 | 2.4 | 323 | 2 | 20h 3m 56s | 1152 | 6910 | $287.93 | 321/323 | 82% | RSEM_CALCULATEEXPRESSION 74% |
+| 3.27.0 rsem 2026-09-23 | 26.04.6 | 2.5 | 332 | 2 | 1d 10h 2m 58s | 1865 | 11107 | $464.22 | 330/332 | 87% | RSEM_CALCULATEEXPRESSION 89% |
 
 Sources:
 
@@ -50,22 +54,26 @@ Sources:
 - 3.18.0 rsem 2024-12-20 — `data/rnaseq/results-b96a75361a4f1d49aa969a2b1c68e3e607de06e8/aligner_star_rsem/pipeline_info/execution_report_2024-12-20_16-55-31.html`
 - 3.22.0 rsem 2025-11-27 — `data/rnaseq/results-c522f87e1406ede19f9df9593d00c3c404684790/aligner_star_rsem/pipeline_info/execution_report_2025-11-27_10-50-37.html`
 - 3.22.2 rsem 2025-12-12 — `data/rnaseq/results-3816d48abd9fab2eee41775b60b4eb8745e1fcaa/aligner_star_rsem/pipeline_info/execution_report_2025-12-12_10-02-14.html`
+- 3.23.0 rsem 2026-02-27 — `data/rnaseq/results-13328f73915ceda9bb794caee2f662230c5a33b6/aligner_star_rsem/pipeline_info/execution_report_2026-02-27_16-55-50.html`
+- 3.24.0 rsem 2026-04-09 — `data/rnaseq/results-47b3b0d3daad69e99d45c9e2dd8db19ee28307a1/aligner_star_rsem/pipeline_info/execution_report_2026-04-09_16-53-16.html`
+- 3.25.0 rsem 2026-04-24 — `data/rnaseq/results-891468c53574d531ae3f75b3a558552839cf973d/aligner_star_rsem/pipeline_info/execution_report_2026-04-24_16-05-18.html`
+- 3.27.0 rsem 2026-09-23 — `data/rnaseq/results-a1fcdddd3b826fe46eb46f0479f2ff8a7815af05/aligner_star_rsem/pipeline_info/execution_report_2026-09-23_13-00-35.html`
 
 ## Cost share by process (top 12, % of each run's cost)
 
-| process | 3.1 rsem 2021-05-14 | 3.2 rsem 2021-06-18 | 3.3 rsem 2021-07-29 | 3.7 rsem 2022-05-03 | 3.8 rsem 2022-05-25 | 3.8.1 rsem 2022-05-27 | 3.9 rsem 2022-09-30 | 3.10.1 rsem 2023-01-05 | 3.11.1 rsem 2023-03-31 | 3.11.2 rsem 2023-04-25 | 3.12.0 rsem 2023-06-02 | 3.14.0 rsem 2024-01-08 | 3.15.0 rsem 2024-09-05 | 3.15.1 rsem 2024-09-17 | 3.16.0 rsem 2024-10-02 | 3.16.1 rsem 2024-10-16 | 3.17.0 rsem 2024-10-24 | 3.18.0 rsem 2024-12-20 | 3.22.0 rsem 2025-11-27 | 3.22.2 rsem 2025-12-12 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| RSEM_CALCULATEEXPRESSION | 42 | 42 | 41 | 42 | 39 | 39 | 43 | 45 | 66 | 64 | 66 | 68 | 66 | 67 | 64 | 65 | 67 | 86 | 75 | 69 |
-| QUALIMAP_RNASEQ | 13 | 13 | 13 | 12 | 12 | 12 | 13 | 14 | 9 | 10 | 9 | 9 | 10 | 10 | 10 | 10 | 10 | 4 | 2 | 3 |
-| TRIMGALORE | 14 | 15 | 15 | 14 | 15 | 15 | 12 | 13 | 8 | 8 | 7 | 7 | 8 | 7 | 8 | 8 | 7 | 3 | 5 | 5 |
-| PICARD_MARKDUPLICATES | 7 | 7 | 7 | 7 | 7 | 7 | 8 | 8 | 5 | 5 | 5 | 4 | 5 | 4 | 5 | 5 | 5 | 2 | 3 | 4 |
-| SALMON_QUANT | 3 | 3 | 3 | 5 | 5 | 6 | 6 | 3 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 1 | 1 | 2 |
-| RSEQC_READDUPLICATION | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
-| BEDTOOLS_GENOMECOV | 2 | 2 | 3 | 2 | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 2 | · | · | · | · | · | · | · | · |
-| STAR_ALIGN_IGENOMES | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | 7 | 9 |
-| FASTQC | 1 | 1 | 1 | 1 | 1 | 1 | 2 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 |
-| PRESEQ_LCEXTRAP | 3 | 3 | 4 | 3 | 4 | 3 | 1 | · | · | · | · | · | · | · | · | · | · | · | · | · |
-| RSEQC_READDISTRIBUTION | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 |
-| DUPRADAR | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| process | 3.1 rsem 2021-05-14 | 3.2 rsem 2021-06-18 | 3.3 rsem 2021-07-29 | 3.7 rsem 2022-05-03 | 3.8 rsem 2022-05-25 | 3.8.1 rsem 2022-05-27 | 3.9 rsem 2022-09-30 | 3.10.1 rsem 2023-01-05 | 3.11.1 rsem 2023-03-31 | 3.11.2 rsem 2023-04-25 | 3.12.0 rsem 2023-06-02 | 3.14.0 rsem 2024-01-08 | 3.15.0 rsem 2024-09-05 | 3.15.1 rsem 2024-09-17 | 3.16.0 rsem 2024-10-02 | 3.16.1 rsem 2024-10-16 | 3.17.0 rsem 2024-10-24 | 3.18.0 rsem 2024-12-20 | 3.22.0 rsem 2025-11-27 | 3.22.2 rsem 2025-12-12 | 3.23.0 rsem 2026-02-27 | 3.24.0 rsem 2026-04-09 | 3.25.0 rsem 2026-04-24 | 3.27.0 rsem 2026-09-23 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| RSEM_CALCULATEEXPRESSION | 42 | 42 | 41 | 42 | 39 | 39 | 43 | 45 | 66 | 64 | 66 | 68 | 66 | 67 | 64 | 65 | 67 | 86 | 75 | 69 | 74 | 61 | 74 | 89 |
+| TRIMGALORE | 14 | 15 | 15 | 14 | 15 | 15 | 12 | 13 | 8 | 8 | 7 | 7 | 8 | 7 | 8 | 8 | 7 | 3 | 5 | 5 | 5 | 6 | 5 | 0 |
+| QUALIMAP_RNASEQ | 13 | 13 | 13 | 12 | 12 | 12 | 13 | 14 | 9 | 10 | 9 | 9 | 10 | 10 | 10 | 10 | 10 | 4 | 2 | 3 | 2 | 3 | 2 | 1 |
+| PICARD_MARKDUPLICATES | 7 | 7 | 7 | 7 | 7 | 7 | 8 | 8 | 5 | 5 | 5 | 4 | 5 | 4 | 5 | 5 | 5 | 2 | 3 | 4 | 3 | 4 | 3 | 2 |
+| SALMON_QUANT | 3 | 3 | 3 | 5 | 5 | 6 | 6 | 3 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 1 | 1 | 2 | 1 | 2 | 1 | 1 |
+| STAR_ALIGN_IGENOMES | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | 7 | 9 | 7 | 12 | 7 | · |
+| RSEQC_READDUPLICATION | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 2 | 1 | 1 |
+| BEDTOOLS_GENOMECOV | 2 | 2 | 3 | 2 | 3 | 2 | 3 | 3 | 2 | 2 | 2 | 2 | · | · | · | · | · | · | · | · | · | · | · | · |
+| DUPRADAR | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 3 | 2 | 0 |
+| FASTQC | 1 | 1 | 1 | 1 | 1 | 1 | 2 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 |
+| RSEQC_READDISTRIBUTION | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 0 |
+| PRESEQ_LCEXTRAP | 3 | 3 | 4 | 3 | 4 | 3 | 1 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · |
 
 `·` = process absent from that run.
