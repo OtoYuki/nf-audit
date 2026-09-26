@@ -12,6 +12,50 @@ nf-audit analyze  --trace  results/pipeline_info/execution_trace_2024-09-16_16-3
 nf-audit compare  data/rnaseq/*/aligner_star_salmon/pipeline_info/execution_report_*.html > releases.md
 ```
 
+## Contents
+
+- [Install](#install)
+- [Usage](#usage)
+- [What it reads](#what-it-reads)
+- [Cost model](#cost-model)
+- [Right-sizing](#right-sizing)
+- [Cost by task tag](#cost-by-task-tag)
+- [Examples](#examples)
+- [Status](#status)
+- [Roadmap](#roadmap)
+
+## Install
+
+Build from source (Rust, edition 2021):
+
+```
+git clone https://github.com/OtoYuki/nf-audit
+cd nf-audit
+cargo build --release
+./target/release/nf-audit --help
+```
+
+Or download the Linux x86_64 binary from [Releases](https://github.com/OtoYuki/nf-audit/releases/latest) and check it against the published `.sha256`.
+
+## Usage
+
+Three subcommands. All read files Nextflow already wrote; none of them talk to a running pipeline or to Seqera Platform.
+
+**`inspect <trace-or-report>`** — what a file actually contains before committing to `analyze`: trace columns, or the report's embedded task count and how many tasks carry requests vs. usage metrics.
+- `--json` — inspection facts as JSON.
+
+**`analyze [--trace PATH] [--report PATH]`** — price and right-size one run. At least one of `--trace` / `--report` is required; both together give the most accurate report (see [What it reads](#what-it-reads)).
+- `--rates PRESET` — `seqera-compute` (default) | `aws-m5-ondemand` | `aws-m5-spot`
+- `--cpu-hour USD`, `--gib-hour USD` — override the preset's per-resource price
+- `--margin FLOAT` — safety margin applied to observed peaks when recommending new requests (default `1.25`)
+- `--config-out PATH` — write a right-sized `nextflow.config` fragment there
+- `--top N` — processes shown per table (default `25`)
+- `--json` — the full report as JSON instead of Markdown
+
+**`compare <report>...`** — line up several runs (one `execution_report_*.html` each): per-run totals and a process-by-run cost-share matrix.
+- same `--rates` / `--cpu-hour` / `--gib-hour` as `analyze`
+- `--top N` — rows in the process-share matrix (default `15`)
+
 ## What it reads
 
 **The report HTML matters more than the trace.** nf-core pipelines enable `trace {}` without custom `fields`, so the TSV trace has only the 14 default columns: what each task *used* (`%cpu`, `peak_rss`, `realtime`) but not what it *requested* (`cpus`, `memory`, `time`). Billing follows the request. The execution report embeds a `window.data` JSON blob with the full per-task record including the requests, so `--report` is what turns "usage" into "cost". When both are given, the report's exact values (milliseconds, bytes) replace the trace's rounded ones and any task present in only one file is kept.
@@ -47,7 +91,9 @@ Validate on one real run before rolling out. A process at 100% CPU efficiency sl
 
 `analyze` also groups cost by the task tag, the text in parentheses after the process name (`STAR_ALIGN (H1_REP2)`). nf-core pipelines usually tag with the sample ID, so this is a per-sample cost: on the rnaseq 3.22.0 `star_rsem` megatest, the eight samples carry $31.19 to $42.45 each of a $294.25 run. The tag is whatever the pipeline author chose, though; sarek tags lanes (`HCC1395T-1`), genomic intervals and reference files as well, and each shows up as its own row. The report states what share of the cost carries a tag. The same table is in `--json` under `run.tags`.
 
-## Public data to demo on
+## Examples
+
+`examples/` holds `nf-audit`'s own output on public nf-core megatest data: `compare` tables across 30 `star_salmon` releases (3.1 → 3.26.0) and 31 `star_rsem` releases (3.1 → 3.27.0), single-run breakdowns for the release Seqera's own cost figure is for and for the worst RSEM run, and the local RSEM thread-scaling benchmark behind the finding below. `examples/README.md` states which runs went in, which were left out and why, and what the tables show.
 
 nf-core publishes the traces and reports of its full-size AWS test runs in a public bucket. Layout changed over time: older rnaseq runs keep one `pipeline_info/` per aligner (`aligner_star_salmon/`, `aligner_star_rsem/`), newer ones a single `pipeline_info/`. The script finds either.
 
@@ -59,6 +105,8 @@ scripts/pull-megatests.sh sarek results-dev
 ```
 
 Anchor to reconcile against: Seqera's published figure for nf-core/rnaseq **3.15.1** `test_full` on AWS Batch is $34.90 with Fusion and $58.40 on plain S3 (docs.seqera.io/platform-cloud/getting-started/rnaseq); the guide does not state the instance types, region or pricing behind those figures. That run is Seqera's own, not a megatest, but the megatest 3.15.1 `star_salmon` run (`-profile test_full_aws`, the same 8 full-size samples the guide uses) completed in 5h 8m 46s with 316.9 CPU-hours, which is the number Nextflow itself prints in the report header and which `nf-audit` reproduces exactly.
+
+**One finding from this corpus was filed upstream.** `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB / 16 h and, across the 45 completed tasks from 3.22.0 onward, used a median 1.04 cores; four consecutive full-size releases (3.22.1, 3.23.0–3.25.0) failed the test on that 16 h limit. Filed as [nf-core/rnaseq#1957](https://github.com/nf-core/rnaseq/issues/1957) (2026-09-25); the maintainer confirmed the analysis and opened [#1959](https://github.com/nf-core/rnaseq/pull/1959) (memory 16 GB, time 24 h, drop the unused BAM output). Both open as of 2026-09-26.
 
 ## Status
 
