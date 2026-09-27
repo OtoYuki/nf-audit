@@ -83,7 +83,7 @@ From `analyze` on the nf-core/rnaseq 3.15.1 full-size test ([full report](exampl
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     T["execution_trace_*.txt<br/>what each task used:<br/>%cpu, peak RSS, run time"] --> M["merge by task hash"]
     R["execution_report_*.html<br/>what each task requested:<br/>cpus, memory, time"] --> M
     M --> P["price each task<br/>request × run time × rate"]
