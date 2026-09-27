@@ -33,8 +33,9 @@ list_keys() { # every key under a prefix, following continuation tokens
 
 if [[ "${1:-}" == "--corpus" ]]; then
   cd "$(dirname "$0")/.."
-  while read -r _ f; do # f = data/<pipeline>/<key under the bucket's pipeline prefix>
-    if [[ ! -s "$f" ]]; then
+  while read -r sum f; do # f = data/<pipeline>/<key under the bucket's pipeline prefix>
+    # Fetch when missing or when a copy (a cache, an interrupted download) does not match.
+    if [[ ! -s "$f" ]] || ! printf '%s  %s\n' "$sum" "$f" | sha256sum --quiet -c - >/dev/null 2>&1; then
       mkdir -p "$(dirname "$f")"
       echo "get ${f#data/}"
       curl -sSf --retry 3 -o "$f" "$BUCKET/${f#data/}"
@@ -58,7 +59,7 @@ while read -r k; do
       rel="${k#"$PIPE/$PREFIX/"}"
       f="$OUT/$rel"
       mkdir -p "$(dirname "$f")"
-      if [[ ! -s "$f" ]]; then echo "get $k"; curl -sS --retry 3 -o "$f" "$BUCKET/$k"; fi
+      if [[ ! -s "$f" ]]; then echo "get $k"; curl -sSf --retry 3 -o "$f" "$BUCKET/$k"; fi
       n=$((n+1)) ;;
   esac
 done < <(list_keys "$PIPE/$PREFIX/" | grep '/pipeline_info/')

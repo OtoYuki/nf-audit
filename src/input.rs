@@ -388,20 +388,24 @@ pub fn merge(trace: Vec<Task>, report: Vec<Task>) -> Vec<Task> {
     out
 }
 
-/// Keep the last row per non-empty hash, in order of each hash's first appearance. Rows without
-/// a hash are all kept.
+/// Keep the last row per task, in order of each task's first appearance. A task is its `hash`,
+/// or its `task_id` in a trace written without the hash column. Rows with neither are all kept.
 fn dedup_by_hash(tasks: Vec<Task>) -> Vec<Task> {
     let mut slot: HashMap<String, usize> = HashMap::new();
     let mut out: Vec<Task> = Vec::with_capacity(tasks.len());
     for t in tasks {
-        if t.hash.is_empty() {
+        let key = if !t.hash.is_empty() {
+            format!("h:{}", t.hash)
+        } else if !t.task_id.is_empty() {
+            format!("i:{}", t.task_id)
+        } else {
             out.push(t);
             continue;
-        }
-        match slot.get(&t.hash) {
+        };
+        match slot.get(&key) {
             Some(&i) => out[i] = t,
             None => {
-                slot.insert(t.hash.clone(), out.len());
+                slot.insert(key, out.len());
                 out.push(t);
             }
         }
@@ -596,6 +600,22 @@ mod tests {
         let secs: f64 = merged.iter().filter_map(|t| t.realtime_s).sum();
         assert_eq!(secs, 3.0 * 3600.0);
         assert!(merged.iter().any(|t| t.status == "FAILED"));
+    }
+
+    /// A hashless trace that logs one task twice (same `task_id`) still counts it once.
+    #[test]
+    fn merge_dedups_a_hashless_trace_by_task_id() {
+        let mut a = task("P (a)", "");
+        a.task_id = "7".into();
+        a.status = "ABORTED".into();
+        let mut b = a.clone();
+        b.status = "FAILED".into();
+        let mut r = task("P (a)", "aa/1");
+        r.task_id = "7".into();
+        r.status = "FAILED".into();
+        let merged = merge(vec![a, b], vec![r]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].status, "FAILED");
     }
 
     /// A trace written with `trace.fields` that leave out `hash` still matches its report by name.

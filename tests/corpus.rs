@@ -12,7 +12,7 @@
 //! states a number the data does not give, so a doc edit that changes a figure must change
 //! the matching assertion too.
 
-use nf_audit::analysis::{analyse, recommend, Rates, RunStats};
+use nf_audit::analysis::{analyse, recommend, render_config, Rates, RunStats};
 use nf_audit::input::{read_report_with_meta, report_json, RunMeta};
 use nf_audit::model::Task;
 use std::collections::BTreeSet;
@@ -877,7 +877,9 @@ fn metering_outside_3_19_0() {
             .filter(|t| t.pct_cpu.is_none() && t.peak_rss.is_none())
             .collect();
         assert!(
-            unmetered.iter().all(|t| !t.succeeded()),
+            unmetered
+                .iter()
+                .all(|t| t.status == "FAILED" || t.status == "ABORTED"),
             "{}: a completed task without metrics",
             run.rev()
         );
@@ -960,4 +962,97 @@ fn master_runs_in_compare() {
             .filter(|r| r.label.starts_with("master@"))
             .all(|r| r.meta.revision.as_deref() == Some("master")));
     }
+}
+
+/// README "Status" and "Right-sizing": rnaseq 3.5 `PICARD_MARKDUPLICATES` "peaked at 53 GiB on
+/// retries of a 36 GiB request"; rnaseq 3.9 `PRESEQ_LCEXTRAP` "had two tasks killed with exit 137
+/// at 6 GB and would otherwise have been cut to 4 GB". Both are left out of the fragment.
+/// examples/README: the 3.22.0 fragment "writes no time line for RSEM".
+#[test]
+#[ignore = "needs data/: scripts/pull-megatests.sh --corpus"]
+fn right_sizing_leaves_escalated_processes_alone() {
+    let r = Rates::SEQERA_COMPUTE;
+    let picard = by_rev(salmon(), "3.5");
+    let p = picard.process("PICARD_MARKDUPLICATES");
+    assert_eq!(
+        (p.base_mem_requested_gib, p.retry_mem_requested_gib),
+        (36.0, 72.0)
+    );
+    assert_eq!(p.max_rss_gib.round(), 53.0);
+    let rec = recommend(&picard.stats, &r, 1.25);
+    assert!(rec
+        .iter()
+        .any(|x| x.process.ends_with(":PICARD_MARKDUPLICATES") && x.needs_escalation));
+    assert!(!render_config(&rec).contains("PICARD_MARKDUPLICATES'"));
+
+    let preseq = by_rev(salmon(), "3.9");
+    let killed: Vec<&Task> = preseq
+        .tasks_of("PRESEQ_LCEXTRAP")
+        .filter(|t| t.status == "FAILED")
+        .collect();
+    assert_eq!(killed.len(), 2);
+    assert!(killed
+        .iter()
+        .all(|t| t.exit == Some(137) && t.memory == Some(6.0 * GIB) && t.peak_rss.is_none()));
+    let p = preseq.process("PRESEQ_LCEXTRAP");
+    assert_eq!(
+        (p.max_rss_gib * 1.25).ceil(),
+        4.0,
+        "the cut the kill rule prevents"
+    );
+    let rec = recommend(&preseq.stats, &r, 1.25);
+    assert!(rec
+        .iter()
+        .any(|x| x.process.ends_with(":PRESEQ_LCEXTRAP") && x.needs_escalation));
+    assert!(!render_config(&rec).contains("PRESEQ_LCEXTRAP'"));
+
+    let r22 = by_rev(rsem(), "3.22.0");
+    let rec = recommend(&r22.stats, &r, 1.25);
+    let cfg = render_config(&rec);
+    let at = cfg.find(&format!(":{RSEM}'")).unwrap();
+    let block = &cfg[at..at + cfg[at..].find('}').unwrap()];
+    assert!(
+        block.contains("cpus   = 2")
+            && block.contains("memory = '12.GB'")
+            && !block.contains("time")
+    );
+}
+
+/// README "Examples": the megatest 3.15.1 `star_salmon` run used `-profile test_full_aws`.
+/// examples/README: in 3.27.0 `H1_REP2` "needed three attempts: the first ran 19.4 h ... and ended
+/// with exit 175, the second ended the same way after 4.5 h, and the third completed.
+/// `MCF7_REP1` ran 22.6 h on its first attempt and completed."
+#[test]
+#[ignore = "needs data/: scripts/pull-megatests.sh --corpus"]
+fn anchor_profile_and_3_27_0_attempts() {
+    assert_eq!(
+        by_rev(salmon(), "3.15.1").meta.profile.as_deref(),
+        Some("test_full_aws")
+    );
+    let run = by_rev(rsem(), "3.27.0");
+    let row = |tag: &str| -> Vec<(u32, String, Option<i64>, f64)> {
+        let mut v: Vec<_> = run
+            .tasks_of(RSEM)
+            .filter(|t| t.tag.as_deref() == Some(tag))
+            .map(|t| {
+                (
+                    t.attempt.unwrap(),
+                    t.status.clone(),
+                    t.exit,
+                    round(t.realtime_s.unwrap() / 3600.0, 1),
+                )
+            })
+            .collect();
+        v.sort_by_key(|x| x.0);
+        v
+    };
+    assert_eq!(
+        row("H1_REP2"),
+        [
+            (1, "FAILED".into(), Some(175), 19.4),
+            (2, "FAILED".into(), Some(175), 4.5),
+            (3, "COMPLETED".into(), Some(0), 9.1)
+        ]
+    );
+    assert_eq!(row("MCF7_REP1"), [(1, "COMPLETED".into(), Some(0), 22.6)]);
 }

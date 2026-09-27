@@ -366,7 +366,7 @@ fn render_markdown(
     ));
 
     if run.tasks_without_requests > 0 {
-        s.push_str(&format!("> {} of {} tasks have no requested cpus/memory (trace-only input). Their cost is priced on *used* resources and is a floor, not an allocation cost. Pass `--report` for the real number.\n\n", run.tasks_without_requests, run.tasks));
+        s.push_str(&format!("> {} of {} tasks lack a requested cpus and/or memory value (a default trace carries neither; a process without a `memory` directive has none). The missing part is priced on *used* resources, so it is a floor, not an allocation cost. With a trace alone, pass the execution report with `--report`.\n\n", run.tasks_without_requests, run.tasks));
     }
     if run.tasks_without_metrics > 0 {
         let all = run.tasks_without_metrics == run.tasks;
@@ -572,7 +572,7 @@ fn render_markdown(
             .collect();
         if !kept.is_empty() {
             s.push_str(&format!(
-                "\nLeft as they are, and not in the config fragment, because some of their tasks needed more memory or time than the first attempt's request, so they depend on the pipeline's retry escalation: {}.\n",
+                "\nLeft as they are, and not in the config fragment, because some of their tasks used more memory or time than the first attempt's request, were retried at a larger one, or were killed (exit 130–145 or 104, which nf-core treats as out of resources); shrinking them could make those tasks fail: {}.\n",
                 kept.join(", ")
             ));
         }
