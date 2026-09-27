@@ -30,7 +30,7 @@ analyze() { # name trace-or-empty report top
   local name=$1 trace=$2 report=$3 top=$4
   local args=(analyze --report "$report" --top "$top" --config-out "$OUT/$name.nf-audit.config")
   [[ -n "$trace" ]] && args+=(--trace "$trace")
-  "$BIN" "${args[@]}" >"$OUT/$name.md" 2>/dev/null
+  "$BIN" "${args[@]}" >"$OUT/$name.md"
 }
 
 R=data/rnaseq

@@ -78,6 +78,39 @@ fn release_key(rev: &str) -> Option<Vec<u32>> {
         .ok()
 }
 
+/// Short process names that mean the same thing in every run. A last component that is
+/// ambiguous within any one run (nf-core/rnaseq runs `SALMON_QUANT` under two subworkflows) gets
+/// its parent in every run, so each variant keeps one matrix row. A last component that is
+/// unambiguous everywhere stays bare, so a process keeps its row when nf-core renames the
+/// subworkflow around it between releases (`FASTQC_UMITOOLS_TRIMGALORE:TRIMGALORE` →
+/// `FASTQ_FASTQC_UMITOOLS_TRIMGALORE:TRIMGALORE`).
+fn matrix_names(runs: &[Run]) -> HashMap<&str, String> {
+    let leaf = |p: &str| p.rsplit(':').next().unwrap_or(p).to_string();
+    let mut ambiguous: std::collections::BTreeSet<String> = Default::default();
+    for run in runs {
+        let mut seen: HashMap<String, &str> = HashMap::new();
+        for p in &run.stats.processes {
+            if let Some(prev) = seen.insert(leaf(&p.process), &p.process) {
+                if prev != p.process {
+                    ambiguous.insert(leaf(&p.process));
+                }
+            }
+        }
+    }
+    runs.iter()
+        .flat_map(|r| r.stats.processes.iter())
+        .map(|p| {
+            let mut parts = p.process.rsplit(':');
+            let last = parts.next().unwrap_or(&p.process);
+            let name = match parts.next() {
+                Some(parent) if ambiguous.contains(last) => format!("{parent}:{last}"),
+                _ => last.to_string(),
+            };
+            (p.process.as_str(), name)
+        })
+        .collect()
+}
+
 /// `16-Sep-2024 16:33:27` -> `2024-09-16`; falls back to the raw string.
 fn start_date(meta: &RunMeta) -> String {
     let Some(s) = &meta.started else {
@@ -99,6 +132,15 @@ fn start_date(meta: &RunMeta) -> String {
 /// Which aligner branch ran, read off the processes present. nf-core/rnaseq megatests run
 /// `star_salmon` and `star_rsem` as separate runs of the same revision.
 fn aligner_hint(stats: &RunStats, path: &Path) -> Option<String> {
+    // nf-core/rnaseq megatests keep each route under `aligner_<route>/`; that is authoritative
+    // (a `star_rsem` run that stopped before RSEM has no RSEM task to go by).
+    let p = path.to_string_lossy();
+    if let Some(a) = ["star_salmon", "star_rsem", "hisat2"]
+        .iter()
+        .find(|a| p.contains(&format!("aligner_{a}")))
+    {
+        return Some(a.trim_start_matches("star_").to_string());
+    }
     let has = |suffix: &str| stats.processes.iter().any(|p| p.process.ends_with(suffix));
     if has("RSEM_CALCULATEEXPRESSION") {
         Some("rsem".into())
@@ -126,12 +168,12 @@ pub fn render_markdown(runs: &[Run], r: &Rates, top: usize) -> String {
         runs.len()
     ));
 
+    let names = matrix_names(runs);
     s.push_str("## Runs\n\n");
     s.push_str("| run | nextflow | fusion | tasks | failed | wall | CPU-h req | GiB-h req | cost | metered | unused | top process |\n");
     s.push_str("|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|\n");
     for run in runs {
         let st = &run.stats;
-        let names = display_names(st);
         let failed: usize = st.processes.iter().map(|p| p.failed_tasks).sum();
         let metered = st.tasks.saturating_sub(st.tasks_without_metrics);
         let metered_cost = st.cpu_h_req_metered * r.cpu_hour + st.gib_h_req_metered * r.gib_hour;
@@ -198,7 +240,6 @@ pub fn render_markdown(runs: &[Run], r: &Rates, top: usize) -> String {
     let mut total_by_proc: BTreeMap<String, f64> = BTreeMap::new();
     let mut share: HashMap<(String, usize), f64> = HashMap::new();
     for (i, run) in runs.iter().enumerate() {
-        let names = display_names(&run.stats);
         for p in &run.stats.processes {
             let name = names
                 .get(p.process.as_str())
@@ -239,12 +280,8 @@ pub fn render_markdown(runs: &[Run], r: &Rates, top: usize) -> String {
         }
         s.push('\n');
     }
-    s.push_str("\n`·` = process absent from that run.\n");
+    s.push_str("\n`·` = no process by that name in that run. A name that is ambiguous within some run keeps its parent (`QUANTIFY_SALMON:SALMON_QUANT`), so the same tool under another subworkflow is a separate row, which may fall outside the top rows shown.\n");
     s
-}
-
-fn display_names(st: &RunStats) -> HashMap<&str, String> {
-    crate::display_names(st.processes.iter().map(|p| p.process.as_str()))
 }
 
 #[cfg(test)]
@@ -286,6 +323,34 @@ mod tests {
                 "3.14.0 2024-01-08"
             ]
         );
+    }
+
+    #[test]
+    fn matrix_names_split_only_what_is_ambiguous_in_some_run() {
+        let with = |procs: &[&str]| {
+            let mut r = run("3.1", "2021-01-01");
+            r.stats.processes = procs
+                .iter()
+                .map(|p| crate::analysis::ProcessStats {
+                    process: p.to_string(),
+                    ..Default::default()
+                })
+                .collect();
+            r
+        };
+        let runs = vec![
+            with(&["R:OLD_SUB:TRIM", "R:QUANT_A:SALMON_QUANT"]),
+            with(&[
+                "R:NEW_SUB:TRIM",
+                "R:QUANT_A:SALMON_QUANT",
+                "R:QUANT_B:SALMON_QUANT",
+            ]),
+        ];
+        let n = matrix_names(&runs);
+        assert_eq!(n["R:OLD_SUB:TRIM"], "TRIM");
+        assert_eq!(n["R:NEW_SUB:TRIM"], "TRIM");
+        assert_eq!(n["R:QUANT_A:SALMON_QUANT"], "QUANT_A:SALMON_QUANT");
+        assert_eq!(n["R:QUANT_B:SALMON_QUANT"], "QUANT_B:SALMON_QUANT");
     }
 
     #[test]

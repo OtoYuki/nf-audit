@@ -78,6 +78,7 @@ pub struct ProcessStats {
     /// escalation. Right-sizing compares against this. 0 when no first attempt was seen.
     pub base_cpus_requested: f64,
     pub base_mem_requested_gib: f64,
+    pub base_time_limit_h: f64,
     pub max_realtime_h: f64,
     pub max_time_limit_h: f64,
     pub cost: f64,
@@ -249,6 +250,9 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
                 if t.attempt.unwrap_or(1) == 1 {
                     p.base_cpus_requested = p.base_cpus_requested.max(c);
                     p.base_mem_requested_gib = p.base_mem_requested_gib.max(m);
+                    if let Some(tl) = t.time_s {
+                        p.base_time_limit_h = p.base_time_limit_h.max(tl / 3600.0);
+                    }
                 }
                 let metered = (
                     if cpu_paired { c * hours } else { 0.0 },
@@ -359,6 +363,10 @@ pub struct Recommendation {
     pub time_now_h: f64,
     pub time_new_h: f64,
     pub saving: f64,
+    /// Set when some task needed more than the first attempt's request (its peak memory or its
+    /// run time exceeds it). The process relies on the pipeline's retry
+    /// escalation, so no change is recommended and nothing is written to the config fragment.
+    pub needs_escalation: bool,
 }
 
 /// Recommend per-process requests: observed peak times a safety margin, rounded to sane units,
@@ -389,11 +397,31 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
         } else {
             mem_now
         };
-        let time_new = if p.max_time_limit_h > 0.0 {
-            round_time_h(p.max_realtime_h * margin.max(1.5)).min(p.max_time_limit_h)
+        let time_now = base(p.base_time_limit_h, p.max_time_limit_h);
+        let time_new = if time_now > 0.0 {
+            round_time_h(p.max_realtime_h * margin.max(1.5)).min(time_now)
         } else {
             0.0
         };
+        // A fixed value replaces the pipeline's retry escalation, so a process whose tasks used
+        // more than the first attempt's request (peak memory or run time) is left alone: writing the
+        // first-attempt value back would make those tasks fail on every attempt.
+        let needs_escalation = (p.tasks_with_rss > 0 && p.max_rss_gib > mem_now)
+            || (time_now > 0.0 && p.max_realtime_h > time_now);
+        if needs_escalation {
+            out.push(Recommendation {
+                process: p.process.clone(),
+                cpus_now,
+                cpus_new: cpus_now.ceil() as u32,
+                mem_now_gib: mem_now,
+                mem_new_gib: mem_now,
+                time_now_h: time_now,
+                time_new_h: time_now,
+                saving: 0.0,
+                needs_escalation,
+            });
+            continue;
+        }
         // Saving is estimated by re-pricing the same runtime at the new allocation.
         let new_cost = (cpus_new as f64) * p.realtime_h * rates.cpu_hour
             + mem_new * p.realtime_h * rates.gib_hour;
@@ -404,9 +432,10 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
             cpus_new,
             mem_now_gib: mem_now,
             mem_new_gib: mem_new,
-            time_now_h: p.max_time_limit_h,
+            time_now_h: time_now,
             time_new_h: time_new,
             saving,
+            needs_escalation,
         });
     }
     out.sort_by(|a, b| {
@@ -546,6 +575,7 @@ mod tests {
             time_now_h: time_now,
             time_new_h: time_new,
             saving: 1.0,
+            needs_escalation: false,
         }
     }
 
@@ -725,6 +755,42 @@ mod tests {
         let r = rec.iter().find(|r| r.process == p0).unwrap();
         assert_eq!(r.cpus_now, base);
         assert!(f64::from(r.cpus_new) <= base);
+    }
+
+    /// Attempt 1 at 8 GiB / 4 h fails; attempt 2 at 16 GiB / 8 h peaks at 12 GiB. Pinning the
+    /// first-attempt values would fail every time, so the process is left to its escalation.
+    #[test]
+    fn processes_that_needed_escalation_are_left_alone() {
+        let mut tasks = fixtures();
+        let p0 = tasks[0].process.clone();
+        let base = tasks.iter().find(|t| t.process == p0).unwrap().clone();
+        tasks.retain(|t| t.process != p0);
+        let mut first = base.clone();
+        first.hash = "aa/1".into();
+        first.attempt = Some(1);
+        first.status = "FAILED".into();
+        first.memory = Some(8.0 * GIB);
+        first.time_s = Some(4.0 * 3600.0);
+        first.peak_rss = Some(7.9 * GIB);
+        let mut second = base;
+        second.hash = "aa/2".into();
+        second.attempt = Some(2);
+        second.status = "COMPLETED".into();
+        second.memory = Some(16.0 * GIB);
+        second.time_s = Some(8.0 * 3600.0);
+        second.peak_rss = Some(12.0 * GIB);
+        tasks.push(first);
+        tasks.push(second);
+        let run = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        let rec = recommend(&run, &Rates::SEQERA_COMPUTE, 1.25);
+        let r = rec.iter().find(|r| r.process == p0).unwrap();
+        assert!(r.needs_escalation);
+        assert_eq!(
+            (r.mem_now_gib, r.mem_new_gib, r.time_now_h),
+            (8.0, 8.0, 4.0)
+        );
+        assert_eq!(r.saving, 0.0);
+        assert!(!render_config(&rec).contains(&format!("'{p0}'")));
     }
 
     #[test]

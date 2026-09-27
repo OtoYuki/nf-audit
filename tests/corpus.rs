@@ -1,7 +1,7 @@
 //! Every figure the README and `examples/README.md` quote about the nf-core megatest corpus,
 //! recomputed from the raw reports in `data/`.
 //!
-//! The reports are not in the repository (about 640 MB). Fetch them, then run:
+//! The reports are not in the repository (109 files, about 367 MB). Fetch them, then run:
 //!
 //! ```text
 //! scripts/pull-megatests.sh --corpus
@@ -83,19 +83,26 @@ impl Run {
             .parse()
             .unwrap()
     }
-    /// Last `Parsed N entries` line anywhere in the report (the error section of a failed task).
-    fn last_parsed(&self) -> Option<u64> {
-        self.html
-            .match_indices("Parsed ")
-            .filter_map(|(i, _)| {
-                let rest = &self.html[i + 7..];
-                let n: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-                rest[n.len()..]
-                    .starts_with(" entries")
-                    .then(|| n.parse().ok())
-                    .flatten()
-            })
+    /// Last line of the failed task's stdout, as the report's error section quotes it under
+    /// `Command output:` (Fusion appends its own `Fusion Info:` block after it).
+    fn last_output_line(&self) -> Option<&str> {
+        let at = self.html.rfind("Command output:")? + "Command output:".len();
+        self.html[at..]
+            .split("\n\n")
+            .next()?
+            .lines()
+            .map(str::trim)
+            .take_while(|l| *l != "Fusion Info:")
+            .filter(|l| !l.is_empty())
             .last()
+    }
+    /// `N` when the failed task's stdout ends on RSEM's `Parsed N entries`.
+    fn last_parsed(&self) -> Option<u64> {
+        self.last_output_line()?
+            .strip_prefix("Parsed ")?
+            .strip_suffix(" entries")?
+            .parse()
+            .ok()
     }
     fn timed_out(&self) -> bool {
         self.html.contains("Job attempt duration exceeded timeout")
@@ -315,6 +322,7 @@ fn rsem_usage_since_3_22() {
         .iter()
         .map(|(_, t)| t.peak_rss.unwrap() / GIB)
         .fold(0f64, f64::max);
+    assert!(max_rss <= 9.45, "{max_rss}");
     assert_eq!(round(max_rss, 2), 9.45);
 }
 
@@ -367,6 +375,8 @@ fn rsem_3_27_0_and_3_22_0() {
         .filter(|t| t.name.ends_with("(H1_REP2)"))
         .collect();
     assert_eq!(h1.iter().map(|t| t.attempt.unwrap()).max(), Some(3));
+    // The only task in the run that needed a third attempt.
+    assert_eq!(run.tasks.iter().filter(|t| t.attempt == Some(3)).count(), 1);
     assert_eq!(h1.last().unwrap().status, "COMPLETED");
     assert!(
         h1.iter().any(|t| t.exit == Some(175)),
@@ -495,7 +505,7 @@ fn dev_branch_timeouts() {
     assert_eq!(hit.iter().filter(|r| r.last_parsed().is_some()).count(), 6);
     assert_eq!(
         hit.iter()
-            .filter(|r| r.html.contains("515000000 alignment lines are loaded!"))
+            .filter(|r| r.last_output_line() == Some("515000000 alignment lines are loaded!"))
             .count(),
         1
     );
@@ -596,10 +606,12 @@ fn salmon_3_25_to_3_26() {
         .filter(|n| *n != "TRIMGALORE" && !n.starts_with("STAR_ALIGN"))
         .map(|n| (cost(b, n) - cost(a, n)).abs())
         .fold(0.0, f64::max);
+    assert_eq!(format!("{others:.2}"), "3.19");
+    let dup = cost(b, "DUPRADAR") - cost(a, "DUPRADAR");
     assert_eq!(
-        format!("{others:.2}"),
-        "3.19",
-        "largest other move (DUPRADAR)"
+        format!("{dup:.2}"),
+        "-3.19",
+        "the largest other move is DUPRADAR, down"
     );
 }
 
@@ -908,4 +920,44 @@ fn release_span_and_rsem_history() {
         .collect();
     assert!(june.iter().all(|x| x.html.contains("--star ")));
     assert!(!r22.html.contains("--star "));
+}
+
+/// examples/README: "Reports from 3.13.x show the revision as `master`; the tables label them
+/// `master@<commit>` and place them by start date" (between 3.12.0 and 3.14.0).
+#[test]
+#[ignore = "needs data/: scripts/pull-megatests.sh --corpus"]
+fn master_runs_in_compare() {
+    for (list, n) in [
+        ("rnaseq-star_salmon-releases.files", 2),
+        ("rnaseq-star_rsem-releases.files", 3),
+    ] {
+        let text = std::fs::read_to_string(root().join("examples").join(list)).unwrap();
+        let paths: Vec<PathBuf> = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| root().join(l))
+            .collect();
+        let runs = nf_audit::compare::load_runs(&paths, &Rates::SEQERA_COMPUTE).unwrap();
+        let labels: Vec<&str> = runs.iter().map(|r| r.label.as_str()).collect();
+        let masters: Vec<usize> = (0..labels.len())
+            .filter(|&i| labels[i].starts_with("master@"))
+            .collect();
+        assert_eq!(masters.len(), n, "{labels:?}");
+        let at = |rev: &str| {
+            labels
+                .iter()
+                .position(|l| l.starts_with(&format!("{rev} ")))
+                .unwrap()
+        };
+        assert!(
+            masters
+                .iter()
+                .all(|&i| i > at("3.12.0") && i < at("3.14.0")),
+            "{labels:?}"
+        );
+        assert!(runs
+            .iter()
+            .filter(|r| r.label.starts_with("master@"))
+            .all(|r| r.meta.revision.as_deref() == Some("master")));
+    }
 }

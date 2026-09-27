@@ -203,6 +203,11 @@ fn run() -> Result<()> {
             let tasks = input::merge(t, rep);
             let run = analyse(&tasks, &r);
             let recs = recommend(&run, &r, margin);
+            // Written before stdout, so a closed pipe cannot skip it.
+            if let Some(out) = config_out {
+                fs::write(&out, analysis::render_config(&recs))?;
+                eprintln!("wrote {}", out.display());
+            }
             if json {
                 let payload = AnalyzeJson {
                     rates: &r,
@@ -224,10 +229,6 @@ fn run() -> Result<()> {
                         &meta
                     )
                 );
-            }
-            if let Some(out) = config_out {
-                fs::write(&out, analysis::render_config(&recs))?;
-                eprintln!("wrote {}", out.display());
             }
             Ok(())
         }
@@ -283,7 +284,8 @@ fn inspect(path: &std::path::Path, as_json: bool) -> Result<()> {
         let text = fs::read_to_string(path)?;
         let header = text.lines().next().unwrap_or("");
         let cols: Vec<&str> = header.split('\t').map(str::trim).collect();
-        let tasks = input::read_trace(path)?;
+        // Same task list `analyze --trace` uses: a hash the trace logs twice is one task.
+        let tasks = input::merge(input::read_trace(path)?, Vec::new());
         let tasks_count = tasks.len();
         let with_req = tasks
             .iter()
@@ -369,8 +371,9 @@ fn render_markdown(
     if run.tasks_without_metrics > 0 {
         let all = run.tasks_without_metrics == run.tasks;
         s.push_str(&format!(
-            "> {} of {} tasks carry no usage metrics (`%cpu` / `peak_rss` are `-`). Cost is still exact (it follows the request), but efficiency, waste and right-sizing {} Nextflow collects these through `ps` inside the task container; a container without procps, and some Fusion/Wave combinations, leave them empty.\n\n",
+            "> {} of {} tasks carry no usage metrics (`%cpu` / `peak_rss` are `-`). {}efficiency, waste and right-sizing {} Nextflow collects these through `ps` inside the task container; a container without procps, and some Fusion/Wave combinations, leave them empty.\n\n",
             run.tasks_without_metrics, run.tasks,
+            if run.tasks_without_requests == 0 { "Cost is still exact (it follows the request), but " } else { "Where a task has no request either, it adds nothing to the cost floor; " },
             if all { "cannot be computed for this run." } else { "are computed over the metered tasks only." }
         ));
     }
@@ -517,6 +520,8 @@ fn render_markdown(
 
     if recs.is_empty() && run.tasks_without_metrics == run.tasks {
         s.push_str("## Right-sizing\n\nSkipped: no task in this run has usage metrics, so there is no observed peak to size against. The requested-vs-used comparison needs a run whose trace carries `%cpu` and `peak_rss`.\n");
+    } else if recs.is_empty() && run.tasks_without_requests == run.tasks {
+        s.push_str("## Right-sizing\n\nSkipped: no task has a known request, so there is nothing to shrink. Pass the run's execution report with `--report`.\n");
     }
     if !recs.is_empty() {
         let total_saving: f64 = recs.iter().map(|x| x.saving).sum();
@@ -530,7 +535,7 @@ fn render_markdown(
             }
         ));
         s.push_str("| process | cpus now → new | memory now → new | time now → new | est. saving |\n|---|---:|---:|---:|---:|\n");
-        for x in recs.iter().take(top) {
+        for x in recs.iter().filter(|x| !x.needs_escalation).take(top) {
             let short = names
                 .get(x.process.as_str())
                 .map(String::as_str)
@@ -553,6 +558,22 @@ fn render_markdown(
                 analysis::fmt_gib(x.mem_new_gib),
                 time,
                 money(x.saving)
+            ));
+        }
+        let kept: Vec<&str> = recs
+            .iter()
+            .filter(|x| x.needs_escalation)
+            .map(|x| {
+                names
+                    .get(x.process.as_str())
+                    .map(String::as_str)
+                    .unwrap_or(&x.process)
+            })
+            .collect();
+        if !kept.is_empty() {
+            s.push_str(&format!(
+                "\nLeft as they are, and not in the config fragment, because some of their tasks needed more memory or time than the first attempt's request, so they depend on the pipeline's retry escalation: {}.\n",
+                kept.join(", ")
             ));
         }
         s.push_str("\nSavings assume the same run time at the smaller allocation, which holds for memory and for CPU-bound processes that were not using the extra cores. Validate on one real run before rolling out; a process at 100% CPU efficiency will slow down if you cut its cores.\n");

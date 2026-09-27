@@ -88,4 +88,4 @@ Sources:
 | PRESEQ_LCEXTRAP | 5 | 5 | 5 | 5 | 2 | 4 | 4 | 5 | 5 | 1 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · |
 | FASTQC | 2 | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 3 | 2 | 2 | 1 | 1 | 1 | 1 |
 
-`·` = process absent from that run.
+`·` = no process by that name in that run. A name that is ambiguous within some run keeps its parent (`QUANTIFY_SALMON:SALMON_QUANT`), so the same tool under another subworkflow is a separate row, which may fall outside the top rows shown.

@@ -20,6 +20,12 @@ pub fn read_trace(path: &Path) -> Result<Vec<Task>> {
         .split('\t')
         .map(|s| s.trim())
         .collect();
+    if !header.contains(&"name") {
+        return Err(anyhow!(
+            "{} is not a Nextflow trace: its first line has no `name` column (an execution report goes to --report)",
+            path.display()
+        ));
+    }
     let mut tasks = Vec::new();
     for (n, line) in lines.enumerate() {
         if line.trim().is_empty() {
@@ -327,9 +333,10 @@ fn js_escapes_to_json(s: &str) -> String {
 /// and can hold tasks a report written at the end never saw, and vice versa.
 ///
 /// A task is identified by its `hash`. The trace can log one hash more than once (in sarek's
-/// megatests, an ABORTED row with no run time followed by the FAILED row); only the last row counts. Matching by `name` is a fallback for
-/// records without a hash only, because retries of one task share its name. Each report record
-/// is used at most once.
+/// megatests, an ABORTED row with no run time followed by the FAILED row); only the last row
+/// counts. Matching by `name` is the fallback when one side has no hash (a trace whose
+/// `trace.fields` leave it out); a hashed trace row never takes a hashed report record by name,
+/// because retries of one task share its name. Each report record is used at most once.
 pub fn merge(trace: Vec<Task>, report: Vec<Task>) -> Vec<Task> {
     if report.is_empty() {
         return dedup_by_hash(trace);
@@ -341,21 +348,29 @@ pub fn merge(trace: Vec<Task>, report: Vec<Task>) -> Vec<Task> {
     let mut by_hash: HashMap<String, usize> = HashMap::new();
     let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, t) in report.iter().enumerate() {
-        if t.hash.is_empty() {
-            by_name.entry(t.name.clone()).or_default().push(i);
-        } else {
+        if !t.hash.is_empty() {
             by_hash.insert(t.hash.clone(), i);
         }
+        by_name.entry(t.name.clone()).or_default().push(i);
     }
     let mut used = vec![false; report.len()];
     let mut out: Vec<Task> = Vec::with_capacity(trace.len().max(report.len()));
     for t in trace {
-        let idx = if t.hash.is_empty() {
+        // Name candidates in order, first unused wins: retries of one task share a name, so
+        // their rows pair up with the report's in the order both files list them.
+        let by_name_where = |ok: &dyn Fn(&Task) -> bool| {
             by_name
                 .get(&t.name)
-                .and_then(|v| v.iter().copied().find(|&i| !used[i]))
+                .and_then(|v| v.iter().copied().find(|&i| !used[i] && ok(&report[i])))
+        };
+        let idx = if t.hash.is_empty() {
+            by_name_where(&|_| true)
         } else {
-            by_hash.get(&t.hash).copied().filter(|&i| !used[i])
+            by_hash
+                .get(&t.hash)
+                .copied()
+                .filter(|&i| !used[i])
+                .or_else(|| by_name_where(&|r| r.hash.is_empty()))
         };
         match idx {
             Some(i) => {
@@ -583,6 +598,18 @@ mod tests {
         assert!(merged.iter().any(|t| t.status == "FAILED"));
     }
 
+    /// A trace written with `trace.fields` that leave out `hash` still matches its report by name.
+    #[test]
+    fn merge_matches_a_hashless_trace_to_a_hashed_report() {
+        let t = vec![task("P (a)", ""), task("P (b)", "")];
+        let mut ra = task("P (a)", "aa/1");
+        ra.cpus = Some(2.0);
+        let rb = task("P (b)", "bb/2");
+        let merged = merge(t, vec![ra, rb]);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].cpus, Some(2.0));
+    }
+
     #[test]
     fn merge_falls_back_to_name_when_hash_is_missing() {
         let t = task("P (a)", "");
@@ -591,6 +618,21 @@ mod tests {
         let merged = merge(vec![t], vec![r]);
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].cpus, Some(2.0));
+    }
+
+    #[test]
+    fn a_report_is_not_read_as_a_trace() {
+        let dir = std::env::temp_dir().join(format!("nf-audit-trace-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("execution_report.html");
+        std::fs::write(
+            &p,
+            "<!DOCTYPE html>\n<html>\n<script>window.data = {};</script>\n",
+        )
+        .unwrap();
+        let err = read_trace(&p).unwrap_err().to_string();
+        assert!(err.contains("not a Nextflow trace"), "{err}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
