@@ -87,6 +87,8 @@ pub struct ProcessStats {
     /// signal such as 137 = SIGKILL, typically out of memory; or 104). They often record no
     /// metrics, so no observed peak shows what they would have needed.
     pub killed_tasks: usize,
+    /// Completed (or cached) tasks that recorded both `%cpu` and `peak_rss`.
+    pub completed_with_metrics: usize,
     pub max_realtime_h: f64,
     pub max_time_limit_h: f64,
     pub cost: f64,
@@ -221,8 +223,16 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         if failed {
             p.failed_tasks += 1;
         }
-        if t.status == "FAILED" && t.exit.is_some_and(|e| (130..=145).contains(&e) || e == 104) {
+        // A kill signal, or (AWS Batch records no exit code for a job it stops at its timeout)
+        // a failure with no exit code that ran to within 10% of its time limit.
+        let signal = t.exit.is_some_and(|e| (130..=145).contains(&e) || e == 104);
+        let timed_out = t.exit.is_none()
+            && matches!((t.realtime_s, t.time_s), (Some(r), Some(l)) if l > 0.0 && r >= 0.9 * l);
+        if t.status == "FAILED" && (signal || timed_out) {
             p.killed_tasks += 1;
+        }
+        if t.succeeded() && t.pct_cpu.is_some() && t.peak_rss.is_some() {
+            p.completed_with_metrics += 1;
         }
 
         // Used resources: what the task actually consumed, integrated over its runtime.
@@ -394,6 +404,11 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
         if !p.has_requests || p.tasks == 0 || p.tasks_with_metrics == 0 {
             continue;
         }
+        // Too few observations to size from: fewer than half of the process's tasks completed
+        // with both metrics (a run stopped early aborts most of them).
+        if p.completed_with_metrics * 2 < p.tasks {
+            continue;
+        }
         let base = |b: f64, max: f64| if b > 0.0 { b } else { max };
         let cpus_now = base(p.base_cpus_requested, p.max_cpus_requested);
         let mem_now = base(p.base_mem_requested_gib, p.max_mem_requested_gib);
@@ -498,7 +513,7 @@ pub fn render_config(recs: &[Recommendation]) -> String {
          process {\n",
     );
     for x in recs {
-        if x.saving <= 0.0 {
+        if x.needs_escalation {
             continue;
         }
         // Only the values that go down are written; anything left unchanged keeps whatever the
@@ -625,9 +640,14 @@ mod tests {
                 && !same.contains("memory = '")
                 && !same.contains("time   = '")
         );
-        let mut none = rec(1.0, 0.5, 1.0, 0.5);
-        none.saving = 0.0;
-        assert!(!render_config(&[none]).contains("withName"));
+        // A lower time limit alone saves nothing (cost follows run time) but is still written.
+        let mut time_only = rec(1.0, 1.0, 16.0, 2.0);
+        time_only.cpus_now = 1.0;
+        time_only.saving = 0.0;
+        assert!(render_config(&[time_only]).contains("time   = '2.h'"));
+        let mut kept = rec(1.0, 0.5, 1.0, 0.5);
+        kept.needs_escalation = true;
+        assert!(!render_config(&[kept]).contains("withName"));
     }
 
     #[test]
@@ -868,6 +888,27 @@ mod tests {
         retry.peak_rss = Some(0.1 * GIB);
         tasks.push(killed.clone());
         tasks.push(retry);
+        // AWS Batch stops a job at its timeout with no exit code; its run time can end just short
+        // of the limit because the limit also covers staging.
+        let mut stopped = tasks[0].clone();
+        stopped.hash = "tt/1".into();
+        stopped.status = "FAILED".into();
+        stopped.exit = None;
+        stopped.time_s = Some(16.0 * 3600.0);
+        stopped.realtime_s = Some(15.9 * 3600.0);
+        stopped.pct_cpu = None;
+        stopped.peak_rss = None;
+        let mut with_stop = fixtures();
+        with_stop.push(stopped);
+        let killed_in = |ts: &[Task]| {
+            analyse(ts, &Rates::SEQERA_COMPUTE)
+                .processes
+                .iter()
+                .find(|q| q.process == p0)
+                .unwrap()
+                .killed_tasks
+        };
+        assert_eq!(killed_in(&with_stop), killed_in(&fixtures()) + 1);
         // Killed and never retried (nf-core's PRESEQ_LCEXTRAP ignores its errors) is enough.
         let mut only_killed = fixtures();
         only_killed.push(killed);
@@ -884,6 +925,27 @@ mod tests {
         let r = rec.iter().find(|r| r.process == p0).unwrap();
         assert!(r.needs_escalation);
         assert!(!render_config(&rec).contains(&format!("'{p0}'")));
+    }
+
+    /// A process where most tasks never completed (a run stopped early) is not sized from the
+    /// one or two that did.
+    #[test]
+    fn too_few_completed_tasks_get_no_recommendation() {
+        let mut tasks = fixtures();
+        let p0 = tasks[0].process.clone();
+        let n = tasks.iter().filter(|t| t.process == p0).count();
+        let mut aborted = 0;
+        for t in tasks.iter_mut().filter(|t| t.process == p0).skip(1) {
+            t.status = "ABORTED".into();
+            t.pct_cpu = None;
+            t.peak_rss = None;
+            aborted += 1;
+        }
+        assert!(aborted * 2 > n);
+        let run = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        assert!(!recommend(&run, &Rates::SEQERA_COMPUTE, 1.25)
+            .iter()
+            .any(|r| r.process == p0));
     }
 
     #[test]

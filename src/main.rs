@@ -506,7 +506,7 @@ fn render_markdown(
         for g in run.tags.iter().take(top) {
             s.push_str(&format!(
                 "| {} | {} | {} | {} | {} | {:.0}% | {} |\n",
-                g.tag.as_deref().unwrap_or("(untagged)"),
+                g.tag.as_deref().unwrap_or("(untagged)").replace('|', "\\|"),
                 g.tasks,
                 g.processes,
                 fmt_time_h(g.realtime_h),

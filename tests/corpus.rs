@@ -556,7 +556,7 @@ fn salmon_unused_share() {
 /// "3.25.0 → 3.26.0: TRIMGALORE ... from 12 CPU / 72 GiB to 8 CPU / 1 GiB. Its run time fell
 /// from 4.38 h to 1.62 h, and its cost from $13.15 to $1.34. STAR went from $23.86 to $16.16.
 /// The two differences sum to $19.51 of the $19.65 net drop. Other processes moved by up to
-/// about ±$3."
+/// $3.19 (`DUPRADAR`, down)."
 #[test]
 #[ignore = "needs data/: scripts/pull-megatests.sh --corpus"]
 fn salmon_3_25_to_3_26() {
@@ -871,6 +871,12 @@ fn corpus_selection_rule() {
 fn metering_outside_3_19_0() {
     let mut most = 0;
     for run in salmon().iter().chain(rsem()) {
+        // Every completed task carries both metrics, not just one of them.
+        assert!(run
+            .tasks
+            .iter()
+            .filter(|t| t.succeeded())
+            .all(|t| t.pct_cpu.is_some() && t.peak_rss.is_some()));
         let unmetered: Vec<&Task> = run
             .tasks
             .iter()
@@ -979,6 +985,16 @@ fn right_sizing_leaves_escalated_processes_alone() {
         (36.0, 72.0)
     );
     assert_eq!(p.max_rss_gib.round(), 53.0);
+    // The 53 GiB peak is a retry's (attempt 2, at 72 GiB).
+    let peak = picard
+        .tasks_of("PICARD_MARKDUPLICATES")
+        .max_by(|a, b| {
+            a.peak_rss
+                .unwrap_or(0.0)
+                .total_cmp(&b.peak_rss.unwrap_or(0.0))
+        })
+        .unwrap();
+    assert_eq!((peak.attempt, peak.memory), (Some(2), Some(72.0 * GIB)));
     let rec = recommend(&picard.stats, &r, 1.25);
     assert!(rec
         .iter()
@@ -1000,6 +1016,15 @@ fn right_sizing_leaves_escalated_processes_alone() {
         4.0,
         "the cut the kill rule prevents"
     );
+    // Nothing but the kill rule keeps it out: no peak or run time above the first attempt's
+    // request, no retry at a larger one.
+    assert!(p.max_rss_gib * 1.25 <= p.base_mem_requested_gib);
+    assert!(p.max_realtime_h < p.base_time_limit_h);
+    assert_eq!(
+        (p.retry_mem_requested_gib, p.retry_cpus_requested),
+        (0.0, 0.0)
+    );
+    assert!(p.killed_tasks == 2 && p.completed_with_metrics * 2 >= p.tasks);
     let rec = recommend(&preseq.stats, &r, 1.25);
     assert!(rec
         .iter()
@@ -1055,4 +1080,37 @@ fn anchor_profile_and_3_27_0_attempts() {
         ]
     );
     assert_eq!(row("MCF7_REP1"), [(1, "COMPLETED".into(), Some(0), 22.6)]);
+}
+
+/// README "Checking the numbers": "the 109 input files (~367 MB)". README "Examples": the 3.15.1
+/// `star_salmon` megatest used "the same 8 full-size samples"; examples/rnaseq-3.15.1: "Tagged
+/// tasks carry 99.9% of the cost".
+#[test]
+#[ignore = "needs data/: scripts/pull-megatests.sh --corpus"]
+fn corpus_size_and_anchor_samples() {
+    let bytes: u64 = manifest("data/")
+        .iter()
+        .map(|p| std::fs::metadata(p).unwrap().len())
+        .sum();
+    assert_eq!((bytes as f64 / 1e6).round(), 367.0);
+    let a = by_rev(salmon(), "3.15.1");
+    let samples: BTreeSet<&str> = a
+        .stats
+        .tags
+        .iter()
+        .filter_map(|g| g.tag.as_deref())
+        .filter(|t| t.contains("_REP"))
+        .collect();
+    assert_eq!(samples.len(), 8);
+    let tagged: f64 = a
+        .stats
+        .tags
+        .iter()
+        .filter(|g| g.tag.is_some())
+        .map(|g| g.cost)
+        .sum();
+    assert_eq!(
+        format!("{:.1}", tagged / a.stats.total_cost * 100.0),
+        "99.9"
+    );
 }
