@@ -308,6 +308,8 @@ fn rsem_usage_since_3_22() {
     );
     assert_eq!(mean.round(), 120.0);
     assert_eq!((pct[0].round(), pct[44].round()), (25.0, 511.0));
+    // README figure alt text: "only one used more than 2" cores.
+    assert_eq!(pct.iter().filter(|p| **p > 200.0).count(), 1);
     assert_eq!(
         format!(
             "{:.2} {:.2} {:.2}",
