@@ -10,9 +10,9 @@
 **Where the CPU-hours and dollars of a Nextflow run actually go.**
 
 [![ci](https://github.com/OtoYuki/nf-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/OtoYuki/nf-audit/actions/workflows/ci.yml)
-[![release](https://img.shields.io/github/v/release/OtoYuki/nf-audit)](https://github.com/OtoYuki/nf-audit/releases/latest)
-[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange)](Cargo.toml)
+[![release](https://img.shields.io/github/v/release/OtoYuki/nf-audit?color=99920B)](https://github.com/OtoYuki/nf-audit/releases/latest)
+[![license: MIT](https://img.shields.io/badge/license-MIT-5A6042)](LICENSE)
+[![rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-99920B)](Cargo.toml)
 
 </div>
 
