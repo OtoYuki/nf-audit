@@ -88,6 +88,7 @@ From `analyze` on the nf-core/rnaseq 3.15.1 full-size test ([full report](exampl
 ## How it works
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Geist Mono, ui-monospace, monospace", "primaryColor": "#D1CF8B", "primaryTextColor": "#141C10", "primaryBorderColor": "#5A6042", "lineColor": "#99920B", "secondaryColor": "#FBFFE1", "tertiaryColor": "#FBFFE1"}}}%%
 flowchart TD
     T["execution_trace_*.txt<br/>what each task used:<br/>%cpu, peak RSS, run time"] --> M["merge by task hash"]
     R["execution_report_*.html<br/>what each task requested:<br/>cpus, memory, time"] --> M
