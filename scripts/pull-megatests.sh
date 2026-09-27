@@ -7,6 +7,9 @@
 #   scripts/pull-megatests.sh sarek results-dev
 # List available result prefixes for a pipeline:
 #   scripts/pull-megatests.sh --list rnaseq
+# Fetch exactly the files behind examples/ and tests/corpus.rs (109 files, ~367 MB), then check
+# each against the sha256 recorded in examples/corpus.sha256:
+#   scripts/pull-megatests.sh --corpus
 #
 # Layout differs by release: newer runs write `results-<sha>/pipeline_info/`, older rnaseq runs
 # write one `pipeline_info/` per aligner (`results-<sha>/aligner_star_salmon/pipeline_info/`).
@@ -28,6 +31,19 @@ list_keys() { # every key under a prefix, following continuation tokens
   done
 }
 
+if [[ "${1:-}" == "--corpus" ]]; then
+  cd "$(dirname "$0")/.."
+  while read -r _ f; do # f = data/<pipeline>/<key under the bucket's pipeline prefix>
+    if [[ ! -s "$f" ]]; then
+      mkdir -p "$(dirname "$f")"
+      echo "get ${f#data/}"
+      curl -sSf --retry 3 -o "$f" "$BUCKET/${f#data/}"
+    fi
+  done < examples/corpus.sha256
+  sha256sum --quiet -c examples/corpus.sha256
+  echo "corpus: $(wc -l < examples/corpus.sha256) files present and match examples/corpus.sha256"
+  exit 0
+fi
 if [[ "${1:-}" == "--list" ]]; then
   curl -sS "$BUCKET/?list-type=2&prefix=${2:?pipeline}/&delimiter=/" | grep -o '<Prefix>[^<]*</Prefix>' | sed 's/<[^>]*>//g'
   exit 0

@@ -12,7 +12,7 @@ pub struct Run {
     pub meta: RunMeta,
     pub stats: RunStats,
     pub label: String,
-    /// Sort key: numeric release first, then everything else by start date.
+    /// Release number (empty when the revision is not one) and start date; see [`order_runs`].
     key: (Vec<u32>, String),
 }
 
@@ -25,36 +25,57 @@ pub fn load_runs(paths: &[PathBuf], rates: &Rates) -> Result<Vec<Run>> {
         let aligner = aligner_hint(&stats, p);
         let date = start_date(&meta);
         let rev = meta.revision.clone().unwrap_or_else(|| "?".into());
-        let label = [Some(rev.clone()), aligner, Some(date.clone())]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" ");
-        let key = (release_key(&rev), date);
+        // A branch name (`master`, `dev`) says little on its own; add the short commit.
+        let rev_label = match (release_key(&rev), &meta.commit) {
+            (None, Some(c)) => format!("{rev}@{}", c.chars().take(7).collect::<String>()),
+            _ => rev.clone(),
+        };
+        let label = [
+            Some(rev_label),
+            aligner,
+            Some(date.clone()).filter(|d| !d.is_empty()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
         runs.push(Run {
             path: p.clone(),
             meta,
             stats,
             label,
-            key,
+            key: (release_key(&rev).unwrap_or_default(), date),
         });
     }
-    runs.sort_by(|a, b| a.key.cmp(&b.key));
-    Ok(runs)
+    Ok(order_runs(runs))
 }
 
-/// `3.15.1` -> [3, 15, 1]; anything else -> [] so it sorts first-by-empty, then by date.
-fn release_key(rev: &str) -> Vec<u32> {
-    let parts: Vec<u32> = rev
-        .split('.')
-        .map(|x| x.parse::<u32>())
-        .collect::<std::result::Result<_, _>>()
-        .unwrap_or_default();
-    if parts.is_empty() {
-        vec![u32::MAX]
-    } else {
-        parts
+/// Release runs in release order (then by start date). A run whose revision is not a release
+/// number (a branch such as `master`) goes after the last release run that started on or before
+/// it, so it sits where it happened instead of at one end of the table.
+fn order_runs(runs: Vec<Run>) -> Vec<Run> {
+    let (mut rel, mut other): (Vec<Run>, Vec<Run>) =
+        runs.into_iter().partition(|r| !r.key.0.is_empty());
+    rel.sort_by(|a, b| a.key.cmp(&b.key));
+    other.sort_by(|a, b| a.key.1.cmp(&b.key.1));
+    let mut out: Vec<Run> = Vec::with_capacity(rel.len() + other.len());
+    let mut rel = rel.into_iter().peekable();
+    for o in other {
+        while let Some(r) = rel.next_if(|r| r.key.1 <= o.key.1) {
+            out.push(r);
+        }
+        out.push(o);
     }
+    out.extend(rel);
+    out
+}
+
+/// `3.15.1` -> `Some([3, 15, 1])`; a revision that is not all numeric parts -> `None`.
+fn release_key(rev: &str) -> Option<Vec<u32>> {
+    rev.split('.')
+        .map(|x| x.parse::<u32>())
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .ok()
 }
 
 /// `16-Sep-2024 16:33:27` -> `2024-09-16`; falls back to the raw string.
@@ -150,7 +171,11 @@ pub fn render_markdown(runs: &[Run], r: &Rates, top: usize) -> String {
                     "no".into()
                 })
                 .unwrap_or_else(|| "?".into()),
-            st.tasks,
+            if st.cached_tasks > 0 {
+                format!("{} ({} cached)", st.tasks, st.cached_tasks)
+            } else {
+                st.tasks.to_string()
+            },
             failed,
             run.meta.duration.as_deref().unwrap_or("?"),
             st.cpu_h_requested,
@@ -220,4 +245,53 @@ pub fn render_markdown(runs: &[Run], r: &Rates, top: usize) -> String {
 
 fn display_names(st: &RunStats) -> HashMap<&str, String> {
     crate::display_names(st.processes.iter().map(|p| p.process.as_str()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(rev: &str, date: &str) -> Run {
+        Run {
+            path: PathBuf::new(),
+            meta: RunMeta::default(),
+            stats: RunStats::default(),
+            label: rev.to_string(),
+            key: (release_key(rev).unwrap_or_default(), date.to_string()),
+        }
+    }
+
+    #[test]
+    fn branch_runs_sit_among_releases_by_date() {
+        let runs = vec![
+            run("3.14.0", "2024-01-08"),
+            run("master", "2023-11-17"),
+            run("3.2", "2021-06-18"),
+            run("3.12.0", "2023-06-02"),
+            run("master", "2023-11-21"),
+            run("3.10.1", "2023-01-05"),
+        ];
+        let order: Vec<String> = order_runs(runs)
+            .into_iter()
+            .map(|r| format!("{} {}", r.label, r.key.1))
+            .collect();
+        assert_eq!(
+            order,
+            [
+                "3.2 2021-06-18",
+                "3.10.1 2023-01-05",
+                "3.12.0 2023-06-02",
+                "master 2023-11-17",
+                "master 2023-11-21",
+                "3.14.0 2024-01-08"
+            ]
+        );
+    }
+
+    #[test]
+    fn release_keys() {
+        assert_eq!(release_key("3.15.1"), Some(vec![3, 15, 1]));
+        assert_eq!(release_key("master"), None);
+        assert_eq!(release_key("3.14.0-rc1"), None);
+    }
 }

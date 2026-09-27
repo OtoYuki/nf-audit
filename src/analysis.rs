@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
-/// Price per resource-hour. Two numbers are enough to price any executor that bills on
+/// Price per resource-hour. Two numbers are enough to price any executor that charges for
 /// allocated CPU and memory; instance-level pricing is folded into them.
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Rates {
@@ -51,22 +51,33 @@ pub struct ProcessStats {
     pub tasks: usize,
     pub failed_tasks: usize,
     pub retried_tasks: usize,
+    /// Whether any task recorded its `attempt` (the default trace columns do not), so that
+    /// `retried_tasks` can be told apart from "unknown".
+    pub attempts_known: bool,
     pub realtime_h: f64,
     pub cpu_h_requested: f64,
     pub cpu_h_used: f64,
     pub gib_h_requested: f64,
     pub gib_h_used: f64,
     /// Tasks whose trace carried `%cpu` / `peak_rss`. Efficiency and waste are computed over
-    /// these only; a task without metrics is billed but says nothing about utilisation.
+    /// these only; a task without metrics is priced but says nothing about utilisation.
     pub tasks_with_metrics: usize,
-    /// Requested CPU-hours / GiB-hours restricted to tasks with metrics, so that
-    /// `cpu_h_used / cpu_h_req_metered` compares like with like.
+    /// Tasks that recorded `%cpu`, and tasks that recorded `peak_rss`. Each metric is used only
+    /// where it was recorded: a task with `%cpu` but no `peak_rss` says nothing about memory.
+    pub tasks_with_cpu: usize,
+    pub tasks_with_rss: usize,
+    /// Requested CPU-hours over tasks with requests and `%cpu`, and GiB-hours over tasks with
+    /// requests and `peak_rss`, so that `cpu_h_used / cpu_h_req_metered` compares like with like.
     pub cpu_h_req_metered: f64,
     pub gib_h_req_metered: f64,
     pub max_cpus_requested: f64,
     pub max_cpu_used_cores: f64,
     pub max_mem_requested_gib: f64,
     pub max_rss_gib: f64,
+    /// Largest request among first attempts: the process's own setting, before any retry
+    /// escalation. Right-sizing compares against this. 0 when no first attempt was seen.
+    pub base_cpus_requested: f64,
+    pub base_mem_requested_gib: f64,
     pub max_realtime_h: f64,
     pub max_time_limit_h: f64,
     pub cost: f64,
@@ -90,9 +101,9 @@ impl ProcessStats {
         }
     }
     /// Dollars spent on allocation that was never used, under the given rates. Only tasks with
-    /// usage metrics contribute; for the rest the waste is unknown, not zero.
+    /// both usage metrics and requests contribute; for the rest the waste is unknown, not zero.
     pub fn waste(&self, r: &Rates) -> Option<f64> {
-        if self.tasks_with_metrics == 0 {
+        if self.cpu_h_req_metered <= 0.0 && self.gib_h_req_metered <= 0.0 {
             return None;
         }
         let cpu_waste = (self.cpu_h_req_metered - self.cpu_h_used).max(0.0) * r.cpu_hour;
@@ -124,7 +135,7 @@ pub struct TagStats {
 impl TagStats {
     /// Same definition as [`ProcessStats::waste`], over this tag's tasks.
     pub fn waste(&self, r: &Rates) -> Option<f64> {
-        if self.tasks_with_metrics == 0 {
+        if self.cpu_h_req_metered <= 0.0 && self.gib_h_req_metered <= 0.0 {
             return None;
         }
         let cpu_waste = (self.cpu_h_req_metered - self.cpu_h_used).max(0.0) * r.cpu_hour;
@@ -148,6 +159,10 @@ pub struct RunStats {
     pub gib_h_requested: f64,
     pub gib_h_used: f64,
     pub tasks_without_requests: usize,
+    /// `CACHED` tasks: reused from an earlier run by `-resume`. They are priced at the run time
+    /// recorded for them, which is what the original run spent, not what this run did.
+    pub cached_tasks: usize,
+    pub cached_cost: f64,
     /// Tasks with no `%cpu` / `peak_rss` in the trace. Common on AWS Batch runs where the
     /// container lacks `ps`, and on some Fusion/Wave combinations; Nextflow then writes `-`.
     pub tasks_without_metrics: usize,
@@ -169,6 +184,10 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         let cpus_req = t.cpus;
         let mem_req_gib = t.memory.map(|b| b / GIB);
         let has_metrics = t.pct_cpu.is_some() || t.peak_rss.is_some();
+        // Used and requested are compared only over tasks that carry both, per metric.
+        let has_req = cpus_req.is_some() && mem_req_gib.is_some();
+        let cpu_paired = has_req && t.pct_cpu.is_some();
+        let mem_paired = has_req && t.peak_rss.is_some();
         let cpu_used_cores = t.pct_cpu.map(|p| p / 100.0).unwrap_or(0.0);
         let rss_gib = t.peak_rss.map(|b| b / GIB).unwrap_or(0.0);
 
@@ -184,6 +203,9 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         if let Some(tl) = t.time_s {
             p.max_time_limit_h = p.max_time_limit_h.max(tl / 3600.0);
         }
+        if t.attempt.is_some() {
+            p.attempts_known = true;
+        }
         if t.attempt.unwrap_or(1) > 1 {
             p.retried_tasks += 1;
         }
@@ -196,17 +218,27 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         // A task without metrics contributes nothing here and is not counted as 0% used.
         let cpu_h_used = cpu_used_cores * hours;
         let gib_h_used = rss_gib * hours;
+        if cpu_paired {
+            p.cpu_h_used += cpu_h_used;
+        }
+        if mem_paired {
+            p.gib_h_used += gib_h_used;
+        }
+        if t.pct_cpu.is_some() {
+            p.tasks_with_cpu += 1;
+            p.max_cpu_used_cores = p.max_cpu_used_cores.max(cpu_used_cores);
+        }
+        if t.peak_rss.is_some() {
+            p.tasks_with_rss += 1;
+            p.max_rss_gib = p.max_rss_gib.max(rss_gib);
+        }
         if has_metrics {
             p.tasks_with_metrics += 1;
-            p.cpu_h_used += cpu_h_used;
-            p.gib_h_used += gib_h_used;
-            p.max_cpu_used_cores = p.max_cpu_used_cores.max(cpu_used_cores);
-            p.max_rss_gib = p.max_rss_gib.max(rss_gib);
         } else {
             run.tasks_without_metrics += 1;
         }
 
-        // Requested resources: what the scheduler had to reserve, hence what is billed.
+        // Requested resources: what the scheduler had to reserve, hence what is priced.
         let (cost, cpu_h_req_metered, gib_h_req_metered) = match (cpus_req, mem_req_gib) {
             (Some(c), Some(m)) => {
                 p.has_requests = true;
@@ -214,11 +246,14 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
                 p.gib_h_requested += m * hours;
                 p.max_cpus_requested = p.max_cpus_requested.max(c);
                 p.max_mem_requested_gib = p.max_mem_requested_gib.max(m);
-                let metered = if has_metrics {
-                    (c * hours, m * hours)
-                } else {
-                    (0.0, 0.0)
-                };
+                if t.attempt.unwrap_or(1) == 1 {
+                    p.base_cpus_requested = p.base_cpus_requested.max(c);
+                    p.base_mem_requested_gib = p.base_mem_requested_gib.max(m);
+                }
+                let metered = (
+                    if cpu_paired { c * hours } else { 0.0 },
+                    if mem_paired { m * hours } else { 0.0 },
+                );
                 (
                     c * hours * rates.cpu_hour + m * hours * rates.gib_hour,
                     metered.0,
@@ -237,13 +272,17 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
             }
         };
         p.cost += cost;
+        if t.status == "CACHED" {
+            run.cached_tasks += 1;
+            run.cached_cost += cost;
+        }
         p.cpu_h_req_metered += cpu_h_req_metered;
         p.gib_h_req_metered += gib_h_req_metered;
         if failed {
             p.failed_cost += cost;
         }
 
-        let tag = Task::tag_from_name(&t.name);
+        let tag = t.tag.clone();
         let (g, procs) = by_tag.entry(tag.clone()).or_insert_with(|| {
             (
                 TagStats {
@@ -262,11 +301,15 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         }
         if has_metrics {
             g.tasks_with_metrics += 1;
-            g.cpu_h_used += cpu_h_used;
-            g.gib_h_used += gib_h_used;
-            g.cpu_h_req_metered += cpu_h_req_metered;
-            g.gib_h_req_metered += gib_h_req_metered;
         }
+        if cpu_paired {
+            g.cpu_h_used += cpu_h_used;
+        }
+        if mem_paired {
+            g.gib_h_used += gib_h_used;
+        }
+        g.cpu_h_req_metered += cpu_h_req_metered;
+        g.gib_h_req_metered += gib_h_req_metered;
     }
 
     let mut tags: Vec<TagStats> = by_tag
@@ -319,8 +362,10 @@ pub struct Recommendation {
 }
 
 /// Recommend per-process requests: observed peak times a safety margin, rounded to sane units,
-/// never below 1 CPU / 1 GiB, and never *above* the current request (this tool shrinks
-/// over-allocation; it does not diagnose OOM kills, which show up as failed tasks instead).
+/// never below 1 CPU / 1 GiB unless the current request is lower, and never *above* the current
+/// request (this tool shrinks over-allocation; it does not diagnose OOM kills, which show up as
+/// failed tasks instead). "Current" is the first-attempt request, before retry escalation. A
+/// resource with no observation (`%cpu` or `peak_rss` never recorded) keeps its current request.
 pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendation> {
     let mut out = Vec::new();
     for p in &run.processes {
@@ -329,12 +374,21 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
         if !p.has_requests || p.tasks == 0 || p.tasks_with_metrics == 0 {
             continue;
         }
-        let cpus_new = ((p.max_cpu_used_cores * margin).ceil() as u32)
-            .max(1)
-            .min(p.max_cpus_requested.ceil() as u32);
-        let mem_new = round_mem_gib(p.max_rss_gib * margin)
-            .max(1.0)
-            .min(p.max_mem_requested_gib);
+        let base = |b: f64, max: f64| if b > 0.0 { b } else { max };
+        let cpus_now = base(p.base_cpus_requested, p.max_cpus_requested);
+        let mem_now = base(p.base_mem_requested_gib, p.max_mem_requested_gib);
+        let cpus_new = if p.tasks_with_cpu > 0 {
+            ((p.max_cpu_used_cores * margin).ceil() as u32)
+                .max(1)
+                .min(cpus_now.ceil() as u32)
+        } else {
+            cpus_now.ceil() as u32
+        };
+        let mem_new = if p.tasks_with_rss > 0 {
+            round_mem_gib(p.max_rss_gib * margin).max(1.0).min(mem_now)
+        } else {
+            mem_now
+        };
         let time_new = if p.max_time_limit_h > 0.0 {
             round_time_h(p.max_realtime_h * margin.max(1.5)).min(p.max_time_limit_h)
         } else {
@@ -346,9 +400,9 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
         let saving = (p.cost - new_cost).max(0.0);
         out.push(Recommendation {
             process: p.process.clone(),
-            cpus_now: p.max_cpus_requested,
+            cpus_now,
             cpus_new,
-            mem_now_gib: p.max_mem_requested_gib,
+            mem_now_gib: mem_now,
             mem_new_gib: mem_new,
             time_now_h: p.max_time_limit_h,
             time_new_h: time_new,
@@ -385,6 +439,79 @@ fn round_time_h(h: f64) -> f64 {
     }
 }
 
+/// The `nextflow.config` fragment for these recommendations: one `withName` block per process
+/// with a positive saving. Values are written exactly (rounded down to whole MB or seconds where
+/// they are not whole GB or hours), so the fragment never asks for more than the current request.
+pub fn render_config(recs: &[Recommendation]) -> String {
+    let mut s = String::from(
+        "// Generated by nf-audit. Review before use; apply with `-c nf-audit.config`.\n\
+         // Fixed values replace any retry escalation the pipeline sets for these processes\n\
+         // (e.g. `memory = { 8.GB * task.attempt }`), so a task that runs out retries at the same size.\n\
+         process {\n",
+    );
+    for x in recs {
+        if x.saving <= 0.0 {
+            continue;
+        }
+        s.push_str(&format!(
+            "    withName: '{}' {{\n        cpus   = {}\n        memory = '{}'\n",
+            x.process,
+            x.cpus_new,
+            nf_memory(x.mem_new_gib)
+        ));
+        if x.time_new_h > 0.0 {
+            s.push_str(&format!(
+                "        time   = '{}'\n",
+                nf_duration(x.time_new_h)
+            ));
+        }
+        s.push_str("    }\n");
+    }
+    s.push_str("}\n");
+    s
+}
+
+/// Nextflow `MemoryUnit` literal for `gib`, rounded down: `12.GB`, else `3584.MB`, else `512.KB`.
+fn nf_memory(gib: f64) -> String {
+    let mb = (gib * 1024.0 + 1e-6).floor() as u64;
+    if mb.is_multiple_of(1024) && mb > 0 {
+        format!("{}.GB", mb / 1024)
+    } else if mb > 0 {
+        format!("{mb}.MB")
+    } else {
+        format!(
+            "{}.KB",
+            ((gib * 1024.0 * 1024.0 + 1e-6).floor() as u64).max(1)
+        )
+    }
+}
+
+/// Nextflow `Duration` literal for `h` hours, rounded down: `16.h`, else `90.m`, else `75.s`.
+fn nf_duration(h: f64) -> String {
+    let secs = ((h * 3600.0 + 1e-6).floor() as u64).max(1);
+    if secs.is_multiple_of(3600) {
+        format!("{}.h", secs / 3600)
+    } else if secs.is_multiple_of(60) {
+        format!("{}.m", secs / 60)
+    } else {
+        format!("{secs}.s")
+    }
+}
+
+/// `12 GB`, `3.5 GB`, `512 MB`, `243 KB`: the largest unit that keeps the value at or above 1,
+/// with at most two decimals. (Nextflow's `GB` is GiB.)
+pub fn fmt_gib(g: f64) -> String {
+    let (v, unit) = if g >= 1.0 {
+        (g, "GB")
+    } else if g * 1024.0 >= 1.0 {
+        (g * 1024.0, "MB")
+    } else {
+        (g * 1024.0 * 1024.0, "KB")
+    };
+    let t = format!("{v:.2}");
+    format!("{} {unit}", t.trim_end_matches('0').trim_end_matches('.'))
+}
+
 pub fn fmt_time_h(h: f64) -> String {
     if h < 1.0 {
         format!("{}m", (h * 60.0).round() as u32)
@@ -409,6 +536,44 @@ mod tests {
         merge(trace, report)
     }
 
+    fn rec(mem_now: f64, mem_new: f64, time_now: f64, time_new: f64) -> Recommendation {
+        Recommendation {
+            process: "P:X".into(),
+            cpus_now: 4.0,
+            cpus_new: 1,
+            mem_now_gib: mem_now,
+            mem_new_gib: mem_new,
+            time_now_h: time_now,
+            time_new_h: time_new,
+            saving: 1.0,
+        }
+    }
+
+    /// The fragment must never round a request up past the current one, or down to zero.
+    #[test]
+    fn config_values_are_exact_and_never_above_the_request() {
+        let cfg = |r: Recommendation| render_config(&[r]);
+        assert!(cfg(rec(0.5, 0.5, 1.0, 1.0)).contains("memory = '512.MB'"));
+        assert!(cfg(rec(3.5, 3.5, 1.0, 1.0)).contains("memory = '3584.MB'"));
+        assert!(cfg(rec(2.5, 2.5, 1.0, 1.0)).contains("memory = '2560.MB'"));
+        assert!(cfg(rec(72.0, 12.0, 16.0, 16.0)).contains("memory = '12.GB'"));
+        assert!(cfg(rec(1.0, 1.0, 1.5, 1.5)).contains("time   = '90.m'"));
+        assert!(cfg(rec(1.0, 1.0, 16.0, 15.0)).contains("time   = '15.h'"));
+        assert!(cfg(rec(1.0, 1.0, 1.0, 0.25)).contains("time   = '15.m'"));
+        assert!(cfg(rec(1.0, 1.0, 0.01, 0.01)).contains("time   = '36.s'"));
+        let mut none = rec(1.0, 1.0, 1.0, 1.0);
+        none.saving = 0.0;
+        assert!(!render_config(&[none]).contains("withName"));
+    }
+
+    #[test]
+    fn gib_display() {
+        assert_eq!(fmt_gib(12.0), "12 GB");
+        assert_eq!(fmt_gib(3.5), "3.5 GB");
+        assert_eq!(fmt_gib(0.5), "512 MB");
+        assert_eq!(fmt_gib(244.0 / 1024.0 / 1024.0), "244 KB");
+    }
+
     #[test]
     fn synthetic_run_prices_and_meters_every_task() {
         let tasks = fixtures();
@@ -431,6 +596,18 @@ mod tests {
             assert!(r.mem_new_gib <= r.mem_now_gib);
             assert!(r.cpus_new >= 1 && r.mem_new_gib >= 1.0);
         }
+    }
+
+    #[test]
+    fn cached_tasks_are_counted_and_priced() {
+        let mut tasks = fixtures();
+        let base = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        assert_eq!((base.cached_tasks, base.cached_cost), (0, 0.0));
+        tasks[0].status = "CACHED".into();
+        let run = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        assert_eq!(run.cached_tasks, 1);
+        assert!(run.cached_cost > 0.0);
+        assert!((run.total_cost - base.total_cost).abs() < 1e-9);
     }
 
     #[test]
@@ -474,6 +651,80 @@ mod tests {
         // Cost does not depend on metrics at all.
         let metered = analyse(&fixtures(), &Rates::SEQERA_COMPUTE);
         assert!((metered.total_cost - run.total_cost).abs() < 1e-9);
+    }
+
+    /// Trace-only input has usage but no requests: waste and efficiency are unknown, not $0 / 0%.
+    #[test]
+    fn trace_only_waste_is_unknown() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata");
+        let trace = read_trace(&root.join("execution_trace_synthetic.txt")).unwrap();
+        let run = analyse(&trace, &Rates::SEQERA_COMPUTE);
+        assert_eq!(run.tasks_without_requests, run.tasks);
+        assert!(run.total_cost > 0.0, "priced on used resources");
+        for p in &run.processes {
+            assert_eq!(p.waste(&Rates::SEQERA_COMPUTE), None, "{}", p.process);
+            assert_eq!(p.cpu_efficiency(), None);
+        }
+        assert!(run
+            .tags
+            .iter()
+            .all(|g| g.waste(&Rates::SEQERA_COMPUTE).is_none()));
+        assert_eq!(run.total_waste, 0.0);
+    }
+
+    /// A metered task without requests must not inflate the used side of an efficiency ratio
+    /// whose requested side it is absent from.
+    #[test]
+    fn used_counts_only_where_requests_are_known() {
+        let mut tasks = fixtures();
+        let before = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        let p0 = before.processes[0].process.clone();
+        let eff0 = before.processes[0].cpu_efficiency().unwrap();
+        let mut extra = tasks.iter().find(|t| t.process == p0).unwrap().clone();
+        extra.hash = "zz/extra".into();
+        extra.cpus = None;
+        extra.memory = None;
+        tasks.push(extra);
+        let after = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        let p = after.processes.iter().find(|p| p.process == p0).unwrap();
+        assert!((p.cpu_efficiency().unwrap() - eff0).abs() < 1e-12);
+    }
+
+    /// A task with `%cpu` but no `peak_rss` must not read as 0 GiB used: memory efficiency and
+    /// waste stay unknown and the memory request is left as it is.
+    #[test]
+    fn one_metric_does_not_stand_in_for_the_other() {
+        let mut tasks = fixtures();
+        for t in &mut tasks {
+            t.peak_rss = None;
+        }
+        let run = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        for p in &run.processes {
+            assert_eq!(p.mem_efficiency(), None, "{}", p.process);
+            assert!(p.cpu_efficiency().is_some());
+        }
+        for r in recommend(&run, &Rates::SEQERA_COMPUTE, 1.25) {
+            assert_eq!(r.mem_new_gib, r.mem_now_gib, "{}", r.process);
+        }
+    }
+
+    /// Retries escalate the request (`12 / 72` after `6 / 36`); "now" is the first-attempt value.
+    #[test]
+    fn current_request_is_the_first_attempt() {
+        let mut tasks = fixtures();
+        let p0 = tasks[0].process.clone();
+        let mut retry = tasks[0].clone();
+        retry.hash = "zz/retry".into();
+        retry.attempt = Some(2);
+        retry.cpus = retry.cpus.map(|c| c * 2.0);
+        retry.memory = retry.memory.map(|m| m * 2.0);
+        let base = tasks[0].cpus.unwrap();
+        tasks.push(retry);
+        let run = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        let rec = recommend(&run, &Rates::SEQERA_COMPUTE, 1.25);
+        let r = rec.iter().find(|r| r.process == p0).unwrap();
+        assert_eq!(r.cpus_now, base);
+        assert!(f64::from(r.cpus_new) <= base);
     }
 
     #[test]

@@ -21,12 +21,13 @@ nf-audit compare  data/rnaseq/*/aligner_star_salmon/pipeline_info/execution_repo
 - [Right-sizing](#right-sizing)
 - [Cost by task tag](#cost-by-task-tag)
 - [Examples](#examples)
+- [Checking the numbers](#checking-the-numbers)
 - [Status](#status)
 - [Roadmap](#roadmap)
 
 ## Install
 
-Build from source (Rust, edition 2021):
+Build from source (Rust 1.88 or newer):
 
 ```
 git clone https://github.com/OtoYuki/nf-audit
@@ -35,7 +36,7 @@ cargo build --release
 ./target/release/nf-audit --help
 ```
 
-Or download the Linux x86_64 binary from [Releases](https://github.com/OtoYuki/nf-audit/releases/latest) and check it against the published `.sha256`.
+Or download the Linux x86_64 binary from [Releases](https://github.com/OtoYuki/nf-audit/releases/latest) and check it against the published `.sha256`. The v0.1.0 binary predates the fixes described under [Status](#status); build from source for the behaviour this README describes.
 
 ## Usage
 
@@ -47,7 +48,7 @@ Three subcommands. All read files Nextflow already wrote; none of them talk to a
 **`analyze [--trace PATH] [--report PATH]`** — price and right-size one run. At least one of `--trace` / `--report` is required; both together give the most accurate report (see [What it reads](#what-it-reads)).
 - `--rates PRESET` — `seqera-compute` (default) | `aws-m5-ondemand` | `aws-m5-spot`
 - `--cpu-hour USD`, `--gib-hour USD` — override the preset's per-resource price
-- `--margin FLOAT` — safety margin applied to observed peaks when recommending new requests (default `1.25`)
+- `--margin FLOAT` — safety margin applied to observed peaks when recommending new requests (default `1.25`, at least `1`)
 - `--config-out PATH` — write a right-sized `nextflow.config` fragment there
 - `--top N` — processes shown per table (default `25`)
 - `--json` — the full report as JSON instead of Markdown
@@ -62,7 +63,7 @@ Three subcommands. All read files Nextflow already wrote; none of them talk to a
 
 Trace-only input still works; the report then prices *used* resources and labels the total as a floor.
 
-**Some runs carry no usage metrics at all.** Nextflow collects `%cpu` and `peak_rss` with `ps` inside the task container; a container without procps leaves every one of them `-`, and some runs record none for reasons the files don't state. nf-audit then still prices the run exactly (cost follows the request) but reports efficiency, waste and right-sizing as unknown rather than as zero. `inspect` tells you up front how many tasks are metered. Of the nf-core/rnaseq megatest runs, the June 2025 ones (Nextflow 25.04.2, Fusion 2.4) are unmetered; runs before and after are fine.
+**Some runs carry no usage metrics at all.** Nextflow collects `%cpu` and `peak_rss` with `ps` inside the task container; a container without procps leaves every one of them `-`, and some runs record none for reasons the files don't state. nf-audit then still prices the run exactly (cost follows the request) but reports efficiency, waste and right-sizing as unknown rather than as zero. `inspect` tells you up front how many tasks are metered. Of the nf-core/rnaseq megatest runs, the June 2025 ones (Nextflow 25.04.2, Fusion 2.4) are unmetered. In every other run of the corpus, every completed task carries metrics; the tasks without them (at most 13 in a run) are failed or aborted attempts. Each metric is used only where it was recorded: a task with `%cpu` but no `peak_rss` counts towards CPU efficiency and says nothing about memory.
 
 ## Cost model
 
@@ -75,6 +76,8 @@ Presets:
 
 Two numbers price any executor that bills on allocation. The presets differ by about 13× on the same run, so quote the preset with the number. The unused share moves only slightly between them (rnaseq 3.15.1: 66% on `seqera-compute`, 64% on the m5 presets).
 
+`CACHED` tasks (a `-resume` run) are priced at the run time recorded for them, which is what the original run spent on them, not what this run spent; `analyze` shows their share on its own row and `compare` counts them in the tasks column.
+
 "Unused" is the dollar value of allocation that was never used (requested minus used, integrated over run time), computed over the tasks that have usage metrics. "Failed cost" is what was spent on attempts that did not complete.
 
 ### How this differs from Seqera Platform's estimate
@@ -83,17 +86,21 @@ Platform's per-task estimate is `VM hourly rate × max(task cpus / VM cpus, task
 
 ## Right-sizing
 
-For each process with usage metrics: new request = observed peak × margin (default 1.25), rounded to sane units, never above the current request, never below 1 CPU / 1 GiB. Time limit = max observed run time × 1.5, rounded up. Processes without metrics get no recommendation. The tool shrinks over-allocation; it does not diagnose OOM kills (those appear as failed tasks, look at the `failed` column).
+For each process with usage metrics: new request = observed peak × margin (default 1.25, must be at least 1), rounded to sane units, never above the current request, and never below 1 CPU / 1 GiB unless the current request is lower. "Current request" is the first attempt's, before any retry escalation (`memory = { 36.GB * task.attempt }` shows 36 GB, not the 72 GB of a second attempt). Time limit = max observed run time × the larger of the margin and 1.5, rounded up, again never above the current limit. `realtime` is the task's own run time; on executors where the time limit also covers staging inputs and outputs (AWS Batch counts the whole job), leave more room for I/O-heavy tasks. Processes without metrics get no recommendation. The tool shrinks over-allocation; it does not diagnose OOM kills (those appear as failed tasks, look at the `failed` column).
 
-Validate on one real run before rolling out. A process at 100% CPU efficiency slows down if you cut its cores.
+What "observed peak" means differs by resource. For memory it is the largest `peak_rss` of any task. For CPU it is the largest per-task *average*: Nextflow's `%cpu` is CPU time over the task's run time, so a task that is single-threaded for most of its life and briefly parallel shows as about one core.
+
+The estimated saving re-prices the same run time at the new request. That holds for memory and for processes that were not using their extra cores. It does not hold if a process gets slower with fewer cores, which a trace cannot show.
+
+The `--config-out` fragment writes whole GB and hours where the values are whole, and MB, minutes or seconds (rounded down) where they are not, so it never asks for more than the current request. Its fixed values replace any retry escalation the pipeline sets for those processes (`memory = { 8.GB * task.attempt }`), so a task that runs out of memory retries at the same size. Validate on one real run before rolling out.
 
 ## Cost by task tag
 
-`analyze` also groups cost by the task tag, the text in parentheses after the process name (`STAR_ALIGN (H1_REP2)`). nf-core pipelines usually tag with the sample ID, so this is a per-sample cost: on the rnaseq 3.22.0 `star_rsem` megatest, the eight samples carry $31.19 to $42.45 each of a $294.25 run. The tag is whatever the pipeline author chose, though; sarek tags lanes (`HCC1395T-1`), genomic intervals and reference files as well, and each shows up as its own row. The report states what share of the cost carries a tag. The same table is in `--json` under `run.tags`.
+`analyze` also groups cost by the task tag, the text in parentheses after the process name (`STAR_ALIGN (H1_REP2)`). nf-core pipelines usually tag with the sample ID, so this is a per-sample cost: on the rnaseq 3.22.0 `star_rsem` megatest, the eight samples carry $31.19 to $42.45 each of a $294.25 run. The tag is whatever the pipeline author chose, though; sarek tags lanes (`HCC1395T-1`), genomic intervals and reference files as well, and each shows up as its own row. The report states what share of the cost carries a tag. Untagged tasks, which Nextflow names after their index (`MULTIQC (1)`), are grouped as untagged using the report's own `tag` field. With a default trace alone there is no tag field, so such a task shows up as tag `1`. Waste is clamped at zero per tag here and per process in the process table, so the two waste columns need not sum to the same total. The same table is in `--json` under `run.tags`.
 
 ## Examples
 
-`examples/` holds `nf-audit`'s own output on public nf-core megatest data: `compare` tables across 30 `star_salmon` releases (3.1 → 3.26.0) and 31 `star_rsem` releases (3.1 → 3.27.0), single-run breakdowns for the release Seqera's own cost figure is for and for the worst RSEM run, and the local RSEM thread-scaling benchmark behind the finding below. `examples/README.md` states which runs went in, which were left out and why, and what the tables show.
+`examples/` holds `nf-audit`'s own output on public nf-core megatest data: `compare` tables across 30 `star_salmon` releases (3.1 → 3.26.0) and 31 `star_rsem` releases (3.1 → 3.27.0), single-run breakdowns for the release Seqera's own cost figure is for (3.15.1 `star_salmon`) and for the first `star_rsem` run after STAR moved out of the RSEM task (3.22.0), and the local RSEM thread-scaling benchmark behind the finding below. `examples/README.md` states which runs went in, which were left out and why, and what the tables show.
 
 nf-core publishes the traces and reports of its full-size AWS test runs in a public bucket. Layout changed over time: older rnaseq runs keep one `pipeline_info/` per aligner (`aligner_star_salmon/`, `aligner_star_rsem/`), newer ones a single `pipeline_info/`. The script finds either.
 
@@ -106,11 +113,26 @@ scripts/pull-megatests.sh sarek results-dev
 
 Anchor to reconcile against: Seqera's published figure for nf-core/rnaseq **3.15.1** `test_full` on AWS Batch is $34.90 with Fusion and $58.40 on plain S3 (docs.seqera.io/platform-cloud/getting-started/rnaseq); the guide does not state the instance types, region or pricing behind those figures. That run is Seqera's own, not a megatest, but the megatest 3.15.1 `star_salmon` run (`-profile test_full_aws`, the same 8 full-size samples the guide uses) completed in 5h 8m 46s with 316.9 CPU-hours, which is the number Nextflow itself prints in the report header and which `nf-audit` reproduces exactly.
 
-**One finding from this corpus was filed upstream.** `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB / 16 h and, across the 45 completed tasks from 3.22.0 onward, used a median 1.04 cores; four consecutive full-size releases (3.22.1, 3.23.0–3.25.0) failed the test on that 16 h limit. Filed as [nf-core/rnaseq#1957](https://github.com/nf-core/rnaseq/issues/1957) (2026-09-25); the maintainer confirmed the analysis and opened [#1959](https://github.com/nf-core/rnaseq/pull/1959) (memory 16 GB, time 24 h, drop the unused BAM output). Both open as of 2026-09-26.
+**One finding from this corpus was filed upstream.** `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB / 16 h and, across the 45 completed tasks from 3.22.0 onward, used a median 1.04 cores. The full-size test of four of the five releases from 3.22.1 to 3.25.0 (all but 3.22.2) failed on that 16 h limit. Filed as [nf-core/rnaseq#1957](https://github.com/nf-core/rnaseq/issues/1957) (2026-09-25); the maintainer confirmed the analysis and opened [#1959](https://github.com/nf-core/rnaseq/pull/1959) (memory 16 GB, time 24 h, drop the unused BAM output). Both open as of 2026-09-27.
+
+## Checking the numbers
+
+Every figure this README and `examples/` quote about the megatest data is recomputed from the raw files by a test, and every file under `examples/` is regenerated by a script and compared byte for byte:
+
+```
+cargo test                                         # unit tests, and the rsem-threads figures
+scripts/pull-megatests.sh --corpus                 # the 109 input files (~367 MB), checked against examples/corpus.sha256
+scripts/regen-examples.sh --check                  # examples/*.md and *.config regenerate unchanged
+cargo test --release --test corpus -- --ignored    # tests/corpus.rs: each quoted number, from the raw reports
+```
+
+CI runs all four on every push to `main`, on every pull request, and weekly (the weekly run downloads the corpus afresh, so it also notices if the bucket stops serving a file), so a change that moves a published number fails the build until the text is corrected. Figures whose source is outside the data (Seqera's documentation, AWS prices, nf-core pull requests, the FASTQ volume) are cited where they are used and are not checked automatically.
 
 ## Status
 
-v0.1, Sept 2026. Parsers are unit-tested against Nextflow's formatting and have been run against 61 rnaseq megatest runs (30 releases on `star_salmon`, 3.1 to 3.26.0; 31 on `star_rsem`, 3.1 to 3.27.0; Nextflow 21.04 to 26.04), the two unmetered 3.19.0 runs and sarek `results-dev`; on all 61 rnaseq runs the requested CPU-hours match the figure in the report header to within 0.1. Two things learned from real files that the synthetic fixtures did not show: the report's own script references `window.data_byprocess`, `window.data.summary` and `window.data.trace` before the assignment, and every task's `script` field carries JavaScript-only `\'` escapes, so the blob is not valid JSON until they are rewritten. Report-JSON conventions follow Nextflow's `ReportObserver.renderJsonData` (every `TraceRecord.FIELDS` entry as a JSON string: memory in bytes, time in milliseconds, `%cpu` as a float, `cpus` as an integer string). A report with more than `maxTasks` tasks (default 10,000) embeds `"trace": null`; nf-audit says so and points you at a trace configured with `trace.fields`.
+v0.1, Sept 2026. Parsers are unit-tested against Nextflow's formatting and have been run against 61 rnaseq megatest runs (30 releases on `star_salmon`, 3.1 to 3.26.0; 31 on `star_rsem`, 3.1 to 3.27.0; Nextflow 21.04 to 26.04), the two unmetered 3.19.0 runs and sarek `results-dev`; on all 61 rnaseq runs the requested CPU-hours match the figure in the report header to within 0.05. Two things learned from real files that the synthetic fixtures did not show: the report's own script references `window.data_byprocess`, `window.data.summary` and `window.data.trace` before the assignment, and every task's `script` field carries JavaScript-only `\'` escapes, so the blob is not valid JSON until they are rewritten. Report-JSON conventions follow Nextflow's `ReportObserver.renderJsonData` (every `TraceRecord.FIELDS` entry as a JSON string: memory in bytes, time in milliseconds, `%cpu` as a float, `cpus` as an integer string). A report with more than `maxTasks` tasks (default 10,000) embeds `"trace": null`; nf-audit says so and points you at a trace configured with `trace.fields`.
+
+Changes since the v0.1.0 binary, found by checking every published figure against the code and data: merging a trace with its report no longer counts a task twice when the trace logs its hash twice, or matches a trace row to a retry of the same task; the config fragment no longer rounds memory or time up past the current request (it writes MB, minutes or seconds where needed); a task with only one of `%cpu` / `peak_rss` no longer reads as zero use of the other; trace-only input shows waste and requests as unknown instead of $0.00; cached tasks are counted and labelled; right-sizing compares against the first attempt's request; untagged tasks no longer show as tag `1` when a report is given; `compare` places branch runs (`master`) by date with their commit; `inspect` counts a trace's tasks correctly. None of these changed a figure published in `examples/`.
 
 ## Roadmap
 

@@ -45,11 +45,6 @@ pub fn read_trace(path: &Path) -> Result<Vec<Task>> {
     Ok(tasks)
 }
 
-/// Extract the task records embedded in an `execution_report_*.html`.
-///
-/// The report embeds `window.data = { "trace": [ {...}, ... ], "summary": {...} };` and the
-/// trace records carry the *requested* resources (`cpus`, `memory`, `time`) that the default TSV
-/// trace omits. Values in the JSON are strings or numbers; both are accepted.
 /// Run-level facts the report header states in prose: pipeline revision, profile, Nextflow
 /// version, Fusion/Wave flags, wall-clock duration and Nextflow's own CPU-hours figure.
 /// Every field is optional; older reports lack some of them.
@@ -110,11 +105,15 @@ impl RunMeta {
     }
 }
 
+/// Extract the task records embedded in an `execution_report_*.html`, and the run facts from its header.
+///
+/// The report embeds `window.data = { "trace": [ {...}, ... ], "summary": {...} };` and the
+/// trace records carry the *requested* resources (`cpus`, `memory`, `time`) that the default TSV
+/// trace omits. Values in the JSON are strings or numbers; both are accepted.
 pub fn read_report_with_meta(path: &Path) -> Result<(Vec<Task>, RunMeta)> {
     let html = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let meta = parse_run_meta(&html);
-    let json = js_escapes_to_json(&extract_window_data(&html)?);
-    let v: Value = serde_json::from_str(&json).context("parsing window.data JSON from report")?;
+    let v = report_json(&html)?;
     let trace = match v.get("trace") {
         Some(Value::Array(t)) => t,
         Some(Value::Null) => {
@@ -144,6 +143,13 @@ pub fn read_report_with_meta(path: &Path) -> Result<(Vec<Task>, RunMeta)> {
         tasks.push(task_from_fields(&fields));
     }
     Ok((tasks, meta))
+}
+
+/// The report's `window.data` blob as JSON: `{"trace": [...], "summary": ...}`. Each trace
+/// record keeps every field Nextflow wrote, including ones [`Task`] drops (`script`, `workdir`).
+pub fn report_json(html: &str) -> Result<Value> {
+    let json = js_escapes_to_json(&extract_window_data(html)?);
+    serde_json::from_str(&json).context("parsing window.data JSON from report")
 }
 
 /// Pull the `<dt>label</dt><dd>value</dd>` pairs and the run-times line out of the report
@@ -264,7 +270,9 @@ fn extract_window_data(html: &str) -> Result<String> {
             _ => {}
         }
     }
-    Err(anyhow!("unbalanced braces in window.data"))
+    Err(anyhow!(
+        "window.data never closes: the report looks truncated (an interrupted download or a run that was killed while writing it)"
+    ))
 }
 
 /// Byte offset of the `window.data = {` assignment. The report's own script also contains
@@ -316,43 +324,71 @@ fn js_escapes_to_json(s: &str) -> String {
 /// carries the requested `cpus`/`memory`/`time` that the default TSV lacks. So whenever a task
 /// appears in both, the report's value wins for every field it has; the trace fills what the
 /// report lacks. Tasks present in only one file are kept: the trace is appended incrementally
-/// and can hold tasks a report written at the end never saw, and vice versa. Records are
-/// matched on `hash`, then on `name`.
+/// and can hold tasks a report written at the end never saw, and vice versa.
+///
+/// A task is identified by its `hash`. The trace can log one hash more than once (in sarek's
+/// megatests, an ABORTED row with no run time followed by the FAILED row); only the last row counts. Matching by `name` is a fallback for
+/// records without a hash only, because retries of one task share its name. Each report record
+/// is used at most once.
 pub fn merge(trace: Vec<Task>, report: Vec<Task>) -> Vec<Task> {
     if report.is_empty() {
-        return trace;
+        return dedup_by_hash(trace);
     }
     if trace.is_empty() {
         return report;
     }
+    let trace = dedup_by_hash(trace);
     let mut by_hash: HashMap<String, usize> = HashMap::new();
-    let mut by_name: HashMap<String, usize> = HashMap::new();
+    let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
     for (i, t) in report.iter().enumerate() {
-        if !t.hash.is_empty() {
+        if t.hash.is_empty() {
+            by_name.entry(t.name.clone()).or_default().push(i);
+        } else {
             by_hash.insert(t.hash.clone(), i);
         }
-        by_name.insert(t.name.clone(), i);
     }
     let mut used = vec![false; report.len()];
-    let mut out: Vec<Task> = trace
-        .into_iter()
-        .map(|t| {
-            let idx = by_hash
-                .get(&t.hash)
-                .or_else(|| by_name.get(&t.name))
-                .copied();
-            match idx {
-                Some(i) => {
-                    used[i] = true;
-                    prefer_report(t, &report[i])
-                }
-                None => t,
+    let mut out: Vec<Task> = Vec::with_capacity(trace.len().max(report.len()));
+    for t in trace {
+        let idx = if t.hash.is_empty() {
+            by_name
+                .get(&t.name)
+                .and_then(|v| v.iter().copied().find(|&i| !used[i]))
+        } else {
+            by_hash.get(&t.hash).copied().filter(|&i| !used[i])
+        };
+        match idx {
+            Some(i) => {
+                used[i] = true;
+                out.push(prefer_report(t, &report[i]));
             }
-        })
-        .collect();
+            None => out.push(t),
+        }
+    }
     for (i, r) in report.into_iter().enumerate() {
         if !used[i] {
             out.push(r);
+        }
+    }
+    out
+}
+
+/// Keep the last row per non-empty hash, in order of each hash's first appearance. Rows without
+/// a hash are all kept.
+fn dedup_by_hash(tasks: Vec<Task>) -> Vec<Task> {
+    let mut slot: HashMap<String, usize> = HashMap::new();
+    let mut out: Vec<Task> = Vec::with_capacity(tasks.len());
+    for t in tasks {
+        if t.hash.is_empty() {
+            out.push(t);
+            continue;
+        }
+        match slot.get(&t.hash) {
+            Some(&i) => out[i] = t,
+            None => {
+                slot.insert(t.hash.clone(), out.len());
+                out.push(t);
+            }
         }
     }
     out
@@ -382,6 +418,8 @@ fn prefer_report(t: Task, r: &Task) -> Task {
         time_s: r.time_s.or(t.time_s),
         container: pick_s(&r.container, t.container),
         queue: pick_s(&r.queue, t.queue),
+        // The report's tag field is authoritative, including when it says "untagged".
+        tag: r.tag.clone(),
     }
 }
 
@@ -497,6 +535,52 @@ mod tests {
         assert_eq!(a.status, "COMPLETED"); // trace value kept where the report had none
         assert!(merged.iter().any(|t| t.hash == "bb/2"));
         assert!(merged.iter().any(|t| t.hash == "cc/3"));
+    }
+
+    /// A trace can log one hash twice (ABORTED then FAILED, seen in sarek `results-dev`); the
+    /// report holds that task once. It must count once, with the report's record.
+    #[test]
+    fn merge_counts_a_repeated_trace_hash_once() {
+        let mut first = task("P (a)", "aa/1");
+        first.status = "ABORTED".into();
+        let mut again = task("P (a)", "aa/1");
+        again.status = "FAILED".into();
+        again.realtime_s = Some(0.265);
+        let mut r = task("P (a)", "aa/1");
+        r.status = "FAILED".into();
+        r.realtime_s = Some(0.265);
+        let merged = merge(vec![first, again], vec![r]);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].status, "FAILED");
+        // Without a matching report record, the last row for the hash is the task's final state.
+        let mut a = task("P (a)", "aa/1");
+        a.status = "ABORTED".into();
+        let mut b = task("P (a)", "aa/1");
+        b.status = "FAILED".into();
+        b.realtime_s = Some(0.265);
+        let only = merge(vec![a, b], vec![task("Q (z)", "zz/9")]);
+        assert_eq!(only.len(), 2);
+        assert_eq!(only[0].status, "FAILED");
+        assert_eq!(only[0].realtime_s, Some(0.265));
+    }
+
+    /// Retries share a name but not a hash. A trace row whose hash is not in the report must not
+    /// be matched to a sibling attempt by name.
+    #[test]
+    fn merge_does_not_match_a_retry_sibling_by_name() {
+        let mut failed = task("P (s1)", "x1/1");
+        failed.status = "FAILED".into();
+        failed.realtime_s = Some(3600.0);
+        let mut done = task("P (s1)", "x2/2");
+        done.status = "COMPLETED".into();
+        done.realtime_s = Some(7200.0);
+        let mut r = done.clone();
+        r.cpus = Some(2.0);
+        let merged = merge(vec![failed, done], vec![r]);
+        assert_eq!(merged.len(), 2);
+        let secs: f64 = merged.iter().filter_map(|t| t.realtime_s).sum();
+        assert_eq!(secs, 3.0 * 3600.0);
+        assert!(merged.iter().any(|t| t.status == "FAILED"));
     }
 
     #[test]

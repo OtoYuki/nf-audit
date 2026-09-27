@@ -10,7 +10,7 @@ mkdir -p runs; chmod 777 runs
 echo -e "threads\twall_s\tuser_s\tsys_s\tcpu_pct\tpeak_mem_bytes" > runs/summary.tsv   # one fresh table per invocation
 for p in $THREADS; do
   d=runs/p$p; podman unshare rm -rf "$d"; mkdir -p "$d"; chmod 777 "$d"
-  podman run --rm --userns=keep-id --cpus="$p" -v "$PWD":/w -w /w/$d $RSEM_IMG bash -c "
+  podman run --rm --userns=keep-id --cpus="$p" -v "$PWD":/w -w /w/"$d" $RSEM_IMG bash -c "
     s=\$(date +%s.%N)
     TIMEFORMAT='%U %S'
     { time rsem-calculate-expression --num-threads $p --temporary-folder ./tmp/ --alignments \
@@ -20,9 +20,9 @@ for p in $THREADS; do
     echo \"\$s \$e\" > wall.txt
     cat /sys/fs/cgroup/memory.peak > peak.txt 2>/dev/null || echo NA > peak.txt
   " 2>&1 | grep -v 'graph driver' || true
-  read s e < "$d/wall.txt"; read u sy < "$d/cpu.txt"
+  read -r s e < "$d/wall.txt"; read -r u sy < "$d/cpu.txt"
   wall=$(python3 -c "print(round($e-$s,1))"); pct=$(python3 -c "print(round(100*($u+$sy)/($e-$s)))")
-  echo -e "$p\t$wall\t$u\t$sy\t$pct\t$(cat $d/peak.txt)" >> runs/summary.tsv
+  echo -e "$p\t$wall\t$u\t$sy\t$pct\t$(cat "$d"/peak.txt)" >> runs/summary.tsv
   tail -1 runs/summary.tsv
   tr '\n' ' ' < "$d/S.time" > "runs/p$p.time"; echo >> "runs/p$p.time"   # RSEM --time, one line
 done

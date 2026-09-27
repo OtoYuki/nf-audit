@@ -1,11 +1,11 @@
 # Examples
 
-Output of nf-audit on public nf-core/rnaseq AWS megatest runs (`s3://nf-core-awsmegatests`). These are full-size test runs: 8 paired-end human RNA-seq samples from the GM12878, K562, MCF7 and H1 cell lines, ~123.5 GB of FASTQ.
+Output of nf-audit on public nf-core/rnaseq AWS megatest runs (`s3://nf-core-awsmegatests`). These are full-size test runs: 8 paired-end human RNA-seq samples from the GM12878, K562, MCF7 and H1 cell lines, 132.4 GB (123.3 GiB) of gzipped FASTQ, summed over the 16 files `samplesheet_full.csv` names.
 
 - **Rates:** the `seqera-compute` preset ($0.10/CPU-h + $0.025/GiB-h).
 - **When:** first generated 2026-09-19; `star_rsem` tables updated 2026-09-25.
-- **Inputs:** not in the repo. `scripts/pull-megatests.sh rnaseq <prefix>` fetches them, and each `*.files` list names the exact report behind each column.
-- **Which runs:** for each release tag and route, the last successful run stored under that tag's own `results-<commit>/` prefix. On `star_rsem`, where a release has none, the last run in which `RSEM_CALCULATEEXPRESSION` failed.
+- **Inputs:** not in the repo. `scripts/pull-megatests.sh --corpus` fetches exactly the 109 files these examples and `tests/corpus.rs` read (the 61 chosen reports, the other reports under the same prefixes that the rule below passed over, and the runs quoted below), and checks each against `corpus.sha256`. Each `*.files` list names the exact report behind each column.
+- **Which runs:** for each release tag and route, the last successful run stored under that tag's own `results-<commit>/` prefix. On `star_rsem`, where a release has none, the last run in which a `RSEM_CALCULATEEXPRESSION` task failed (status `FAILED`; tasks `ABORTED` because another task failed do not count). `tests/corpus.rs` checks the rule against every report under those prefixes.
 - **Left out:**
   - The two unmetered 3.19.0 runs.
   - Releases where no run qualifies (3.11.0, 3.13.0 `star_salmon`, 3.26.0 `star_rsem`).
@@ -18,18 +18,18 @@ Output of nf-audit on public nf-core/rnaseq AWS megatest runs (`s3://nf-core-aws
 | `rnaseq-3.15.1-star_salmon.md` | one run of the release Seqera's own $34.90 / $58.40 figure is for |
 | `rnaseq-3.15.1-star_salmon.nf-audit.config` | the right-sizing fragment for it |
 | `rnaseq-3.22.0-star_rsem.md` | one run on the RSEM branch; `RSEM_CALCULATEEXPRESSION` at 9% CPU and 11% memory efficiency |
-| `rnaseq-3.22.0-star_rsem.nf-audit.config` | its fragment. The RSEM line alone (2 CPU / 12 GiB) is an estimated $185 saving on a $294 run, priced at the same run times. It keeps the 16 h limit that later runs fail on |
+| `rnaseq-3.22.0-star_rsem.nf-audit.config` | its fragment. The RSEM line alone (2 CPU / 12 GiB) is an estimated $185 saving on a $294 run, priced at the same run times. That assumption is the weak point here: run locally, the same RSEM command is 4.36× faster at 12 threads than at 1 (`rsem-threads/`), so on hardware where it does use its threads, 2 CPUs would make it slower. The fragment also keeps the 16 h limit that later runs fail on |
 | `rnaseq-star_salmon-releases.md` | 30 releases, 3.1 (May 2021) → 3.26.0 (May 2026), `star_salmon` branch |
 | `rnaseq-star_rsem-releases.md` | 31 releases on the `star_rsem` branch, 3.1 → 3.27.0; details below |
 | `rsem-threads/` | the 3.22.0 RSEM command run locally at 1–12 threads on the megatest's own chr1 reads: scaling, a parse-only timing, output hashes, I/O |
 
 Notes on `rnaseq-star_rsem-releases.md`:
-- 3.22.1, 3.23.0, 3.24.0 and 3.25.0 are runs that failed: `RSEM_CALCULATEEXPRESSION` hit the 16 h limit.
+- 3.22.1, 3.23.0, 3.24.0 and 3.25.0 are runs that failed: `RSEM_CALCULATEEXPRESSION` hit the 16 h limit. 3.22.2, released between 3.22.1 and 3.23.0, passed.
 - 3.26.0 is left out because both of its runs stopped early for reasons unrelated to RSEM.
-- The 3.15.1 report is a `-resume` run: 195 of 271 tasks are cached and priced at their recorded run times. 3.5's successful runs on both routes are also `-resume` runs.
-- Reports from 3.13.x show the revision as `master`.
+- The 3.15.1 report is a `-resume` run: 195 of 271 tasks are cached and priced at their recorded run times. 3.5's successful runs on both routes are also `-resume` runs. The tasks column shows the cached count.
+- Reports from 3.13.x show the revision as `master`; the tables label them `master@<commit>` and place them by start date.
 
-Commands:
+Commands: `scripts/regen-examples.sh` rebuilds every file here with the exact arguments used (`--check` compares instead of writing). For example:
 
 ```
 nf-audit analyze --trace .../execution_trace_2024-09-16_16-33-21.txt \
@@ -37,6 +37,8 @@ nf-audit analyze --trace .../execution_trace_2024-09-16_16-33-21.txt \
                  --top 20 --config-out rnaseq-3.15.1-star_salmon.nf-audit.config > rnaseq-3.15.1-star_salmon.md
 nf-audit compare --top 12 $(cat rnaseq-star_salmon-releases.files) > rnaseq-star_salmon-releases.md
 ```
+
+Every number in "What the tables show" below is asserted by a test in `tests/corpus.rs`, named after the sentence it checks.
 
 What the tables show:
 
@@ -46,7 +48,7 @@ What the tables show:
    - **3.25.0 → 3.26.0:** nf-core upgraded two processes and resized one of them.
      - `TRIMGALORE` moved to Trim Galore 2.1.0 (#1789) and from 12 CPU / 72 GiB to 8 CPU / 1 GiB (#1836, #1841, #1842). Its run time fell from 4.38 h to 1.62 h, and its cost from $13.15 to $1.34.
      - The legacy STAR 2.6.1d pin was dropped for 2.7.11b (#1835); STAR went from $23.86 to $16.16.
-     - The two differences sum to $19.51 of the $19.65 net drop. Other processes moved by up to about ±$3, so the split is approximate. TRIMGALORE's own split between run time and request depends on the order you apply them.
+     - The two differences sum to $19.51 of the $19.65 net drop. Other processes moved by up to $3.19 (`DUPRADAR`, down), so the split is approximate. TRIMGALORE's own split between run time and request depends on the order you apply them.
 2. **`QUALIMAP_RNASEQ` requests 6 CPUs / 36 GiB in every release, and no task of it averaged more than 1.08 cores.** In 3.6, two tasks that failed their first attempt were retried at 12 / 72.
    - 3.1–3.4 and 3.7–3.8.1: third most expensive process; 3.5: fourth.
    - 3.6 and 3.9–3.18: second, at 18–23% of cost and 13–17% CPU efficiency.

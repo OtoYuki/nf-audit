@@ -9,7 +9,7 @@
 
 | metric | value |
 |---|---|
-| billed cost | $15.26 |
+| cost (requested × run time) | $15.26 |
 | of which allocated but unused | $7.56 (50% of the $15.26 metered) |
 | of which spent on failed attempts | $0.00 |
 | task run time (sum) | 22.8 h |
@@ -57,13 +57,12 @@ The tag is the text in parentheses after the process name. nf-core pipelines usu
 | HCC1395T | 29 | 15 | 4.1h | $3.52 | 23% | $1.41 |
 | HCC1395T-1 | 2 | 2 | 14m | $0.15 | 1% | $0.06 |
 | HCC1395N-1 | 2 | 2 | 12m | $0.14 | 1% | $0.05 |
-| (untagged) | 1 | 1 | 1m | $0.01 | 0% | $0.01 |
+| (untagged) | 2 | 2 | 1m | $0.01 | 0% | $0.01 |
 | Homo_sapiens_assembly38.fasta | 1 | 1 | 1m | $0.01 | 0% | $0.01 |
 | dbsnp | 1 | 1 | 1m | $0.00 | 0% | $0.00 |
 | intervals | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
 | GC_G1000_hg38.zip | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
 | S07604624_Padded_Agilent_SureSelectXT_allexons_V6_UTR.bed | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
-| 1 | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
 | RT_G1000_hg38.zip | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
 | S07604624_Padded_Agilent_SureSelectXT_allexons_V6_UTR | 1 | 1 | 0m | $0.00 | 0% | $0.00 |
 | G1000_alleles_hg38.zip | 1 | 1 | 0m | $0.00 | 0% | $0.00 |

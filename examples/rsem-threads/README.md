@@ -58,7 +58,7 @@ Hardware: a laptop with an 8-core / 16-thread i7-11800H (so the 12-thread run re
 
 Needs podman and about 25 GB of disk. The working directory reached 22 GB: about 10 GB is the six runs' ~1.6 GB `S.transcript.bam` files, and the rest is the STAR index, alignments, reads and parse-only temp files.
 
-The numbers in `runs/` come from earlier versions of these scripts. The committed versions differ only in comments and in where they write their output.
+The numbers in `runs/` come from earlier versions of these scripts. The committed versions differ only in comments, shell quoting, and where they write their output.
 - `p*.time` are copies of each run's `S.time`.
 - `summary.tsv` is from `THREADS="12 1 2 4 8"`.
 - `star_chr1_log.txt` is two lines copied from `aln/S.Log.final.out`.
