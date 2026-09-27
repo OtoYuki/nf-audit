@@ -10,8 +10,9 @@ use nf_audit::input::read_report_with_meta;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-/// Colours by role. Series hues are the first two slots of the validated reference palette,
-/// stepped per mode; surfaces are GitHub's page backgrounds.
+/// Colours by role, from the nf-audit brand (ink #141C10, cream #FBFFE1, khaki #D1CF8B,
+/// olive #99920B, moss #5A6042). As in the logo, the filled segment is what was used (moss on
+/// cream, khaki on ink) and olive is what was reserved and never used.
 struct Theme {
     name: &'static str,
     surface: &'static str,
@@ -24,24 +25,24 @@ struct Theme {
 
 const LIGHT: Theme = Theme {
     name: "light",
-    surface: "#ffffff",
-    text: "#1f2328",
-    muted: "#59636e",
-    grid: "#e4e6e9",
-    series1: "#2a78d6",
-    series2: "#eb6834",
+    surface: "#FBFFE1",
+    text: "#141C10",
+    muted: "#5A6042",
+    grid: "#E3E5C3",
+    series1: "#5A6042",
+    series2: "#99920B",
 };
 const DARK: Theme = Theme {
     name: "dark",
-    surface: "#0d1117",
-    text: "#f0f6fc",
-    muted: "#9198a1",
-    grid: "#262c34",
-    series1: "#3987e5",
-    series2: "#d95926",
+    surface: "#141C10",
+    text: "#FBFFE1",
+    muted: "#D1CF8B",
+    grid: "#2A3322",
+    series1: "#D1CF8B",
+    series2: "#99920B",
 };
 
-const FONT: &str = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
+const FONT: &str = "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -121,8 +122,8 @@ fn salmon_figure(t: &Theme) -> String {
         &Rates::SEQERA_COMPUTE,
     )
     .unwrap();
-    let (w, h) = (880.0, 400.0);
-    let (left, right, top, bottom) = (58.0, 20.0, 104.0, 44.0);
+    let (w, h) = (880.0, 418.0);
+    let (left, right, top, bottom) = (58.0, 20.0, 122.0, 44.0);
     let (pw, ph) = (w - left - right, h - top - bottom);
     let ymax = 350.0;
     let y = |v: f64| top + ph - v / ymax * ph;
@@ -156,8 +157,18 @@ fn salmon_figure(t: &Theme) -> String {
         t.muted,
         "start",
         400,
+        "One run per release, priced at Seqera Compute list rates.",
+    );
+    text(
+        &mut s,
+        left,
+        70.0,
+        13.0,
+        t.muted,
+        "start",
+        400,
         &format!(
-            "One run per release, priced at Seqera Compute list rates. The idle share stayed at 62–68% in {in_band} of {} releases while the cost fell.",
+            "The idle share stayed at 62–68% in {in_band} of {} releases while the cost fell.",
             runs.len()
         ),
     );
@@ -170,9 +181,9 @@ fn salmon_figure(t: &Theme) -> String {
         let x = lx + i as f64 * 110.0;
         let _ = writeln!(
             s,
-            "<rect x=\"{x}\" y=\"70\" width=\"12\" height=\"12\" rx=\"3\" fill=\"{fill}\"/>"
+            "<rect x=\"{x}\" y=\"88\" width=\"12\" height=\"12\" rx=\"3\" fill=\"{fill}\"/>"
         );
-        text(&mut s, x + 18.0, 80.5, 12.5, t.text, "start", 400, label);
+        text(&mut s, x + 18.0, 98.5, 12.5, t.text, "start", 400, label);
     }
     // Grid and y ticks
     for v in [0.0, 100.0, 200.0, 300.0] {

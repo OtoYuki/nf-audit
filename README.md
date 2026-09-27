@@ -1,6 +1,11 @@
 <div align="center">
 
-# nf-audit
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/nf-audit-logo-dark.svg">
+    <img alt="nf-audit" src="docs/brand/nf-audit-logo-light.svg" width="360">
+  </picture>
+</h1>
 
 **Where the CPU-hours and dollars of a Nextflow run actually go.**
 

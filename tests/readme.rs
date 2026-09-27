@@ -43,6 +43,8 @@ fn figures_exist() {
             let value = &value[..value.find('"').unwrap()];
             if let Some(name) = value.strip_prefix("docs/img/") {
                 names.push(name.to_string());
+            } else if let Some(name) = value.strip_prefix("docs/brand/") {
+                assert!(root().join("docs/brand").join(name).is_file(), "{name}");
             }
         }
     }
