@@ -15,6 +15,18 @@ pub struct Rates {
 }
 
 impl Rates {
+    /// Every built-in preset, in the order `--rates` documents them.
+    pub const PRESETS: [Rates; 3] = [
+        Self::SEQERA_COMPUTE,
+        Self::AWS_M5_ONDEMAND,
+        Self::AWS_M5_SPOT,
+    ];
+
+    /// The cost of a run already analysed, at these rates instead.
+    pub fn price(&self, run: &RunStats) -> f64 {
+        run.priced_cpu_h * self.cpu_hour + run.priced_gib_h * self.gib_hour
+    }
+
     /// Seqera Compute list price (Sept 2026): $0.10 per CPU-hour, $0.025 per GiB-hour.
     pub const SEQERA_COMPUTE: Rates = Rates {
         name: "seqera-compute",
@@ -174,6 +186,11 @@ pub struct RunStats {
     /// recorded for them, which is what the original run spent, not what this run did.
     pub cached_tasks: usize,
     pub cached_cost: f64,
+    /// The CPU-hours and GiB-hours the cost is made of (requested where known, used otherwise),
+    /// so that the same run can be priced at any rate: `priced_cpu_h × cpu_hour + priced_gib_h ×
+    /// gib_hour` equals `total_cost` at the rates it was analysed with.
+    pub priced_cpu_h: f64,
+    pub priced_gib_h: f64,
     /// Tasks with no `%cpu` / `peak_rss` in the trace. Common on AWS Batch runs where the
     /// container lacks `ps`, and on some Fusion/Wave combinations; Nextflow then writes `-`.
     pub tasks_without_metrics: usize,
@@ -294,6 +311,8 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         let cpu_part = cpus_req.map_or(cpu_h_used, |c| c * hours);
         let mem_part = mem_req_gib.map_or(gib_h_used, |m| m * hours);
         let cost = cpu_part * rates.cpu_hour + mem_part * rates.gib_hour;
+        run.priced_cpu_h += cpu_part;
+        run.priced_gib_h += mem_part;
         let cpu_h_req_metered = if cpu_paired { cpu_part } else { 0.0 };
         let gib_h_req_metered = if mem_paired { mem_part } else { 0.0 };
         p.cost += cost;
@@ -684,6 +703,16 @@ mod tests {
             assert!(f64::from(r.cpus_new) <= r.cpus_now.ceil());
             assert!(r.mem_new_gib <= r.mem_now_gib);
             assert!(r.cpus_new >= 1 && r.mem_new_gib >= 1.0);
+        }
+    }
+
+    #[test]
+    fn repricing_matches_a_fresh_analysis() {
+        let tasks = fixtures();
+        let run = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        for r in Rates::PRESETS {
+            let fresh = analyse(&tasks, &r).total_cost;
+            assert!((r.price(&run) - fresh).abs() < 1e-9, "{}", r.name);
         }
     }
 

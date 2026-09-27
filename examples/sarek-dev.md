@@ -12,6 +12,7 @@
 | cost (requested × run time) | $15.26 |
 | of which allocated but unused | $7.56 (50% of the $15.26 metered) |
 | of which spent on failed attempts | $0.00 |
+| the same run at other rates | $3.82 at `aws-m5-ondemand`, $1.34 at `aws-m5-spot` |
 | task run time (sum) | 22.8 h |
 | CPU-hours requested / used | 86.1 / 60.2 (70%) |
 | GiB-hours requested / used | 266.0 / 77.9 (29%) |

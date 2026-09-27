@@ -24,6 +24,7 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --locked
       - run: cargo build --release --locked
+      - run: rustup target add x86_64-unknown-linux-musl && cargo build --release --locked --target x86_64-unknown-linux-musl
       - run: shellcheck scripts/*.sh examples/rsem-threads/*.sh
 
   msrv:
@@ -33,6 +34,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88
       - run: cargo test --locked
+
+  nextflow-e2e:
+    # Runs a small pipeline in real Nextflow, audits it, and applies the generated fragment.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/e2e-nextflow.sh
 
   corpus:
     # Every committed example regenerates byte for byte, and every figure the docs quote about

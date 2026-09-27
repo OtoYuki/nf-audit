@@ -36,7 +36,7 @@ cargo build --release
 ./target/release/nf-audit --help
 ```
 
-Or download the Linux x86_64 binary from [Releases](https://github.com/OtoYuki/nf-audit/releases/latest) and check it against the published `.sha256`. The v0.1.0 binary predates the fixes described under [Status](#status); build from source for the behaviour this README describes.
+Or download the Linux x86_64 binary from [Releases](https://github.com/OtoYuki/nf-audit/releases/latest) and check it against the published `.sha256`. From v0.2.0 it is statically linked (musl), so it runs on any x86_64 Linux, including CentOS 7 and RHEL 8 cluster nodes; the v0.1.0 binary needed glibc 2.34 and predates the fixes described under [Status](#status).
 
 ## Usage
 
@@ -74,7 +74,7 @@ Presets:
 - `seqera-compute`: $0.10 per CPU-hour plus $0.025 per GiB-hour, Seqera Compute's published list price (seqera.io/pricing, Sept 2026). These are Seqera Compute's published per-resource rates; applying them to requested resources on `realtime` is nf-audit's model, not a statement of how that service bills.
 - `aws-m5-ondemand`, `aws-m5-spot`: m5.large on-demand in us-east-1 ($0.096/h) split into per-vCPU and per-GiB components ($0.032 + $0.004), and the same at an assumed 65% spot discount. Approximations; override with `--cpu-hour` / `--gib-hour` for your region and family.
 
-Two numbers price any executor that bills on allocation. The presets differ by about 13× on the same run, so quote the preset with the number. The unused share moves only slightly between them (rnaseq 3.15.1: 66% on `seqera-compute`, 64% on the m5 presets).
+Two numbers price any executor that bills on allocation. The presets differ by about 13× on the same run, so quote the preset with the number; `analyze` prints the run at every preset under Totals for that reason. The unused share moves only slightly between them (rnaseq 3.15.1: 66% on `seqera-compute`, 64% on the m5 presets).
 
 `CACHED` tasks (a `-resume` run) are priced at the run time recorded for them, which is what the original run spent on them, not what this run spent; `analyze` shows their share on its own row and `compare` counts them in the tasks column.
 
@@ -126,7 +126,9 @@ scripts/regen-examples.sh --check                  # examples/*.md and *.config 
 cargo test --release --test corpus -- --ignored    # tests/corpus.rs: each quoted number, from the raw reports
 ```
 
-CI runs all four on every push to `main`, on every pull request, and weekly (the weekly run downloads the corpus afresh, so it also notices if the bucket stops serving a file), so a change that moves a published number fails the build until the text is corrected. Figures whose source is outside the data (Seqera's documentation, AWS prices, nf-core pull requests, the FASTQ volume) are cited where they are used and are not checked automatically.
+`scripts/e2e-nextflow.sh` closes the loop in real Nextflow (25.04.8, local executor, via podman or docker): it runs `testdata/nextflow-local/main.nf`, audits the run, applies the generated fragment with `-c`, and checks from the new trace that the lowered requests took effect and that a process relying on retry escalation kept it.
+
+CI runs all of these on every push to `main`, on every pull request, and weekly (the weekly run downloads the corpus afresh, so it also notices if the bucket stops serving a file), so a change that moves a published number fails the build until the text is corrected. Figures whose source is outside the data (Seqera's documentation, AWS prices, nf-core pull requests, the FASTQ volume) are cited where they are used and are not checked automatically.
 
 ## Status
 

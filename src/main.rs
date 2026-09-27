@@ -422,6 +422,19 @@ fn render_markdown(
         "| of which spent on failed attempts | {} |\n",
         money(run.failed_cost)
     ));
+    // The presets differ by an order of magnitude; show the run at each, so no one quotes one
+    // number without the others.
+    let others: Vec<String> = Rates::PRESETS
+        .iter()
+        .filter(|p| p.name != r.name || p.cpu_hour != r.cpu_hour || p.gib_hour != r.gib_hour)
+        .map(|p| format!("{} at `{}`", money(p.price(run)), p.name))
+        .collect();
+    if !others.is_empty() {
+        s.push_str(&format!(
+            "| the same run at other rates | {} |\n",
+            others.join(", ")
+        ));
+    }
     s.push_str(&format!(
         "| task run time (sum) | {:.1} h |\n",
         run.realtime_h
