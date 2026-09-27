@@ -57,20 +57,22 @@ cd nf-audit-v0.2.0-x86_64-unknown-linux-musl
 From `analyze` on the nf-core/rnaseq 3.15.1 full-size test ([full report](examples/rnaseq-3.15.1-star_salmon.md)):
 
 <!-- sample:examples/rnaseq-3.15.1-star_salmon.md (each line is checked against that file by tests/readme.rs) -->
-```
+| metric | value |
+|---|---|
 | cost (requested × run time) | $79.23 |
 | of which allocated but unused | $52.08 (66% of the $79.23 metered) |
 | the same run at other rates | $17.75 at `aws-m5-ondemand`, $6.21 at `aws-m5-spot` |
 | CPU-hours requested / used | 316.9 / 130.0 (41%) |
 
 | process | tasks | run time | cost | share | cpu eff | mem eff | waste | retries | failed |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | STAR_ALIGN_IGENOMES | 8 | 6.4h | $19.28 | 24% | 47% | 50% | $9.88 | 0 | 0 |
 | QUALIMAP_RNASEQ | 8 | 12.0h | $18.00 | 23% | 16% | 14% | $15.37 | 0 | 0 |
 | TRIMGALORE | 8 | 4.5h | $13.49 | 17% | 61% | 8% | $9.49 | 0 | 0 |
 
 | process | cpus now → new | memory now → new | time now → new | est. saving |
+|---|---:|---:|---:|---:|
 | QUALIMAP_RNASEQ | 6 → 2 | 36 GB → 7 GB | 8h → 3h | $13.50 |
-```
 <!-- /sample -->
 
 - **Cost by process and by sample** (the task tag), with CPU and memory efficiency, unused allocation, retries and failed-attempt cost.
