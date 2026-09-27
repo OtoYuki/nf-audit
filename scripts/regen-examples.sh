@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regenerate every nf-audit output under examples/ from the megatest files in data/.
+# Regenerate every nf-audit output under examples/, and the README figures under docs/img/,
+# from the megatest files in data/.
 #
 # Usage: scripts/regen-examples.sh [--check]
 #   --check   regenerate into a temp dir and diff against examples/; exit 1 on any difference.
@@ -48,12 +49,21 @@ for route in star_salmon star_rsem; do
   "$BIN" compare --top 12 $(cat examples/rnaseq-$route-releases.files) >"$OUT/rnaseq-$route-releases.md"
 done
 
+# The README figures come from the same corpus.
+FIG=docs/img
+[[ $CHECK -eq 1 ]] && FIG="$OUT/img"
+cargo run --release --quiet --example readme-figures -- "$FIG"
+
 if [[ $CHECK -eq 1 ]]; then
   status=0
   for f in "$OUT"/*; do
+    [[ -f "$f" ]] || continue
     diff -u "examples/$(basename "$f")" "$f" || status=1
   done
-  if [[ $status -eq 0 ]]; then echo "examples/: all $(find "$OUT" -type f | wc -l) generated files match"; fi
+  for f in "$FIG"/*; do
+    diff -q "docs/img/$(basename "$f")" "$f" >/dev/null || { echo "docs/img/$(basename "$f") differs" >&2; status=1; }
+  done
+  if [[ $status -eq 0 ]]; then echo "examples/ and docs/img/: all $(find "$OUT" -type f | wc -l) generated files match"; fi
   exit $status
 fi
 echo "regenerated into examples/"

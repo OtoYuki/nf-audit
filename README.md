@@ -1,19 +1,30 @@
+<div align="center">
+
 # nf-audit
 
-Where the CPU-hours and dollars of a Nextflow run actually go.
+**Where the CPU-hours and dollars of a Nextflow run actually go.**
 
-`nf-audit` reads the two files every Nextflow run already writes, `execution_trace_*.txt` and `execution_report_*.html`, and turns them into a per-process cost breakdown, an over-allocation figure, a retry-waste figure, and a right-sized `nextflow.config` fragment. It runs offline, on any executor (AWS Batch, Google Batch, Slurm, Kubernetes, local), on runs that never went through Seqera Platform. A `compare` mode lines up many runs, for example every release of a pipeline, and shows which processes carry the cost over time.
+[![ci](https://github.com/OtoYuki/nf-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/OtoYuki/nf-audit/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/OtoYuki/nf-audit)](https://github.com/OtoYuki/nf-audit/releases/latest)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange)](Cargo.toml)
 
-```
-nf-audit inspect  results/pipeline_info/execution_report_2024-09-16_16-33-21.html
-nf-audit analyze  --trace  results/pipeline_info/execution_trace_2024-09-16_16-33-21.txt \
-                  --report results/pipeline_info/execution_report_2024-09-16_16-33-21.html \
-                  --rates seqera-compute --config-out nf-audit.config > report.md
-nf-audit compare  data/rnaseq/*/aligner_star_salmon/pipeline_info/execution_report_*.html > releases.md
-```
+</div>
+
+`nf-audit` reads the two files every Nextflow run already writes, `execution_trace_*.txt` and `execution_report_*.html`, and turns them into a per-process cost breakdown, an over-allocation figure, a retry-waste figure, and a right-sized `nextflow.config` fragment. It runs offline, on runs that never went through Seqera Platform; it has been run on AWS Batch and local-executor runs, and reads the same two files any executor writes. A `compare` mode lines up many runs, for example every release of a pipeline, and shows which processes carry the cost over time.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/salmon-cost-dark.svg">
+  <img alt="Stacked columns, one per nf-core/rnaseq star_salmon release from 3.1 to 3.26.0: the cost of each full-size test run fell from $139 to $60, while the part reserved but never used stayed at 62–68% in 28 of 30 releases." src="docs/img/salmon-cost-light.svg">
+</picture>
+
+<sub>nf-audit's own output on 30 public nf-core/rnaseq test runs, drawn by <code>scripts/readme_figures.rs</code> and checked against the data in CI. Details in <a href="examples/README.md"><code>examples/</code></a>.</sub>
 
 ## Contents
 
+- [Quick start](#quick-start)
+- [What you get](#what-you-get)
+- [How it works](#how-it-works)
 - [Install](#install)
 - [Usage](#usage)
 - [What it reads](#what-it-reads)
@@ -24,6 +35,64 @@ nf-audit compare  data/rnaseq/*/aligner_star_salmon/pipeline_info/execution_repo
 - [Checking the numbers](#checking-the-numbers)
 - [Status](#status)
 - [Roadmap](#roadmap)
+
+## Quick start
+
+A static Linux x86_64 binary, no dependencies:
+
+```
+curl -sSLO https://github.com/OtoYuki/nf-audit/releases/download/v0.2.0/nf-audit-v0.2.0-x86_64-unknown-linux-musl.tar.gz
+tar xzf nf-audit-v0.2.0-x86_64-unknown-linux-musl.tar.gz
+cd nf-audit-v0.2.0-x86_64-unknown-linux-musl
+
+./nf-audit inspect  results/pipeline_info/execution_report_2024-09-16_16-33-21.html
+./nf-audit analyze  --trace  results/pipeline_info/execution_trace_2024-09-16_16-33-21.txt \
+                    --report results/pipeline_info/execution_report_2024-09-16_16-33-21.html \
+                    --config-out nf-audit.config > report.md
+./nf-audit compare  runs/*/pipeline_info/execution_report_*.html > releases.md   # one report per run
+```
+
+## What you get
+
+From `analyze` on the nf-core/rnaseq 3.15.1 full-size test ([full report](examples/rnaseq-3.15.1-star_salmon.md)):
+
+<!-- sample:examples/rnaseq-3.15.1-star_salmon.md (each line is checked against that file by tests/readme.rs) -->
+| metric | value |
+|---|---|
+| cost (requested × run time) | $79.23 |
+| of which allocated but unused | $52.08 (66% of the $79.23 metered) |
+| the same run at other rates | $17.75 at `aws-m5-ondemand`, $6.21 at `aws-m5-spot` |
+| CPU-hours requested / used | 316.9 / 130.0 (41%) |
+
+| process | tasks | run time | cost | share | cpu eff | mem eff | waste | retries | failed |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| STAR_ALIGN_IGENOMES | 8 | 6.4h | $19.28 | 24% | 47% | 50% | $9.88 | 0 | 0 |
+| QUALIMAP_RNASEQ | 8 | 12.0h | $18.00 | 23% | 16% | 14% | $15.37 | 0 | 0 |
+| TRIMGALORE | 8 | 4.5h | $13.49 | 17% | 61% | 8% | $9.49 | 0 | 0 |
+
+| process | cpus now → new | memory now → new | time now → new | est. saving |
+|---|---:|---:|---:|---:|
+| QUALIMAP_RNASEQ | 6 → 2 | 36 GB → 7 GB | 8h → 3h | $13.50 |
+<!-- /sample -->
+
+- **Cost by process and by sample** (the task tag), with CPU and memory efficiency, unused allocation, retries and failed-attempt cost.
+- **A right-sized `nextflow.config` fragment** that lowers only what the observed peaks allow and leaves alone any process that needed its retry escalation. It is checked in real Nextflow in CI.
+- **`compare`**: every run side by side, and each process's share of cost across runs.
+- **`--json`** for all of it.
+
+## How it works
+
+```mermaid
+flowchart TD
+    T["execution_trace_*.txt<br/>what each task used:<br/>%cpu, peak RSS, run time"] --> M["merge by task hash"]
+    R["execution_report_*.html<br/>what each task requested:<br/>cpus, memory, time"] --> M
+    M --> P["price each task<br/>request × run time × rate"]
+    P --> A["cost by process and sample<br/>unused allocation, failed attempts"]
+    P --> S["right-sizing:<br/>observed peak × margin,<br/>never above the request"]
+    S --> C["nextflow.config fragment"]
+```
+
+nf-core's default trace has no request columns, so the report is what turns usage into cost; see [What it reads](#what-it-reads).
 
 ## Install
 
@@ -115,6 +184,11 @@ Anchor to reconcile against: Seqera's published figure for nf-core/rnaseq **3.15
 
 **One finding from this corpus was filed upstream.** `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB / 16 h and, across the 45 completed tasks from 3.22.0 onward, used a median 1.04 cores. The full-size test of four of the five releases from 3.22.1 to 3.25.0 (all but 3.22.2) failed on that 16 h limit. Filed as [nf-core/rnaseq#1957](https://github.com/nf-core/rnaseq/issues/1957) (2026-09-25); the maintainer confirmed the analysis and opened [#1959](https://github.com/nf-core/rnaseq/pull/1959) (memory 16 GB, time 24 h, drop the unused BAM output). Both open as of 2026-09-27.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/rsem-cores-dark.svg">
+  <img alt="Dot plot of the 45 completed RSEM_CALCULATEEXPRESSION tasks in rnaseq 3.22.0 to 3.27.0: each reserved 12 CPUs; the median task used 1.04 cores, and only one used more than 2." src="docs/img/rsem-cores-light.svg">
+</picture>
+
 ## Checking the numbers
 
 Every figure this README and `examples/` quote about the megatest data is recomputed from the raw files by a test, and every file under `examples/` is regenerated by a script and compared byte for byte:
@@ -122,7 +196,7 @@ Every figure this README and `examples/` quote about the megatest data is recomp
 ```
 cargo test                                         # unit tests, and the rsem-threads figures
 scripts/pull-megatests.sh --corpus                 # the 109 input files (~367 MB), checked against examples/corpus.sha256
-scripts/regen-examples.sh --check                  # examples/*.md and *.config regenerate unchanged
+scripts/regen-examples.sh --check                  # examples/ and the README figures in docs/img/ regenerate unchanged
 cargo test --release --test corpus -- --ignored    # tests/corpus.rs: each quoted number, from the raw reports
 ```
 
