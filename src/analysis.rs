@@ -496,14 +496,12 @@ fn round_time_h(h: f64) -> f64 {
     }
 }
 
-/// Processes with requests and some usage metrics that [`recommend`] did not size because fewer
-/// than half of their tasks completed with both `%cpu` and `peak_rss`.
+/// Processes with requests that [`recommend`] did not size because fewer than half of their
+/// tasks completed with both `%cpu` and `peak_rss` (including processes with no metrics at all).
 pub fn not_sized(run: &RunStats) -> Vec<&str> {
     run.processes
         .iter()
-        .filter(|p| {
-            p.has_requests && p.tasks_with_metrics > 0 && p.completed_with_metrics * 2 < p.tasks
-        })
+        .filter(|p| p.has_requests && p.completed_with_metrics * 2 < p.tasks)
         .map(|p| p.process.as_str())
         .collect()
 }
@@ -739,6 +737,8 @@ mod tests {
             .iter()
             .all(|p| p.cpu_efficiency().is_none() && p.waste(&Rates::SEQERA_COMPUTE).is_none()));
         assert!(recommend(&run, &Rates::SEQERA_COMPUTE, 1.25).is_empty());
+        // Every process has requests and none was sized, so every one is named as not sized.
+        assert_eq!(not_sized(&run).len(), run.processes.len());
         // Cost does not depend on metrics at all.
         let metered = analyse(&fixtures(), &Rates::SEQERA_COMPUTE);
         assert!((metered.total_cost - run.total_cost).abs() < 1e-9);

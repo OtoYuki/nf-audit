@@ -106,6 +106,8 @@ struct AnalyzeJson<'a> {
     run: &'a RunStats,
     meta: &'a input::RunMeta,
     recommendations: &'a [analysis::Recommendation],
+    /// Processes with requests that were not sized (too few tasks completed with both metrics).
+    not_sized: Vec<&'a str>,
 }
 
 #[derive(serde::Serialize)]
@@ -214,6 +216,7 @@ fn run() -> Result<()> {
                     run: &run,
                     meta: &meta,
                     recommendations: &recs,
+                    not_sized: analysis::not_sized(&run),
                 };
                 out!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
@@ -530,7 +533,13 @@ fn render_markdown(
             not_sized.join(", ")
         )
     };
-    if recs.is_empty() && !not_sized.is_empty() {
+    // A run with no metrics at all gets the one-line explanation below instead of a list.
+    let not_sized_note = if run.tasks_without_metrics == run.tasks {
+        String::new()
+    } else {
+        not_sized_note
+    };
+    if recs.is_empty() && !not_sized_note.is_empty() {
         s.push_str("## Right-sizing\n");
         s.push_str(&not_sized_note);
     } else if recs.is_empty() && run.tasks_without_metrics == run.tasks {

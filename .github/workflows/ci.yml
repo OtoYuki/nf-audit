@@ -50,4 +50,4 @@ jobs:
           key: corpus-${{ hashFiles('examples/corpus.sha256') }}
       - run: scripts/pull-megatests.sh --corpus
       - run: scripts/regen-examples.sh --check
-      - run: cargo test --release --test corpus -- --ignored
+      - run: cargo test --release --locked --test corpus -- --ignored
