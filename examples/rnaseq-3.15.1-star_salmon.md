@@ -10,9 +10,10 @@
 
 | metric | value |
 |---|---|
-| billed cost | $79.23 |
+| cost (requested × run time) | $79.23 |
 | of which allocated but unused | $52.08 (66% of the $79.23 metered) |
 | of which spent on failed attempts | $0.00 |
+| the same run at other rates | $17.75 at `aws-m5-ondemand`, $6.21 at `aws-m5-spot` |
 | task run time (sum) | 50.8 h |
 | CPU-hours requested / used | 316.9 / 130.0 (41%) |
 | GiB-hours requested / used | 1901.4 / 568.1 (30%) |
@@ -44,7 +45,7 @@
 
 ## Cost by task tag (top 20)
 
-The tag is the text in parentheses after the process name. nf-core pipelines usually tag with the sample ID, which makes this a per-sample cost; other tags (lanes, intervals, reference files) show up as their own rows. Tagged tasks carry 100.0% of the cost.
+The tag is the text in parentheses after the process name. nf-core pipelines usually tag with the sample ID, which makes this a per-sample cost; other tags (lanes, intervals, reference files) show up as their own rows. Tagged tasks carry 99.9% of the cost.
 
 | tag | tasks | processes | run time | cost | share | waste |
 |---|---:|---:|---:|---:|---:|---:|
@@ -59,9 +60,8 @@ The tag is the text in parentheses after the process name. nf-core pipelines usu
 | genome.transcripts.fa | 1 | 1 | 29m | $0.72 | 1% | $0.31 |
 | rsem/genome.fa | 1 | 1 | 2m | $0.11 | 0% | $0.10 |
 | all_samples | 8 | 8 | 4m | $0.09 | 0% | $0.09 |
-| (untagged) | 4 | 4 | 2m | $0.04 | 0% | $0.03 |
+| (untagged) | 5 | 5 | 3m | $0.04 | 0% | $0.03 |
 | null | 2 | 2 | 1m | $0.01 | 0% | $0.00 |
-| 1 | 1 | 1 | 1m | $0.00 | 0% | $0.00 |
 | genome.fa | 2 | 2 | 0m | $0.00 | 0% | $0.00 |
 
 ## Right-sizing (margin applied to observed peaks): est. saving $41.42 (52%)

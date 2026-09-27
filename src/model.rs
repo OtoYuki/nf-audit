@@ -21,7 +21,7 @@ pub struct Task {
     pub attempt: Option<u32>,
     /// Wall time from submission to completion, in seconds.
     pub duration_s: Option<f64>,
-    /// Execution time of the task itself, in seconds. This is what compute is billed on.
+    /// Execution time of the task itself, in seconds. nf-audit prices on this.
     pub realtime_s: Option<f64>,
     /// Average CPU utilisation in percent (100 = one core fully busy).
     pub pct_cpu: Option<f64>,
@@ -38,6 +38,8 @@ pub struct Task {
     pub time_s: Option<f64>,
     pub container: String,
     pub queue: String,
+    /// The task tag (see [`Task::tag_from_name`]); `None` when the task has none.
+    pub tag: Option<String>,
 }
 
 impl Task {
@@ -155,6 +157,14 @@ fn split_num_unit(s: &str) -> Option<(f64, String)> {
 pub fn task_from_fields(f: &HashMap<String, String>) -> Task {
     let get = |k: &str| f.get(k).map(|s| s.as_str()).unwrap_or("");
     let name = get("name").to_string();
+    // Nextflow's own `tag` field, where the record has one (the report always does; a trace only
+    // with `trace.fields`), is authoritative: an untagged task is named `PROC (1)` after its
+    // index, which the name alone cannot tell apart from a tag `1`.
+    let tag = match f.get("tag").map(|s| s.trim()) {
+        Some("" | "-") => None,
+        Some(t) => Some(t.to_string()),
+        None => Task::tag_from_name(&name),
+    };
     let process = if !get("process").is_empty() {
         get("process").to_string()
     } else {
@@ -181,6 +191,7 @@ pub fn task_from_fields(f: &HashMap<String, String>) -> Task {
         time_s: parse_duration(get("time")),
         container: get("container").to_string(),
         queue: get("queue").to_string(),
+        tag,
     }
 }
 
@@ -221,6 +232,26 @@ mod tests {
             Task::process_from_name("NFCORE_RNASEQ:RNASEQ:ALIGN_STAR:STAR_ALIGN (SRX1)"),
             "NFCORE_RNASEQ:RNASEQ:ALIGN_STAR:STAR_ALIGN"
         );
+    }
+
+    #[test]
+    fn tag_field_wins_over_the_name() {
+        let rec = |pairs: &[(&str, &str)]| {
+            task_from_fields(
+                &pairs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            )
+        };
+        // Untagged task: Nextflow names it after its index and writes tag `-`.
+        assert_eq!(rec(&[("name", "P:MULTIQC (1)"), ("tag", "-")]).tag, None);
+        assert_eq!(
+            rec(&[("name", "P:X (s1)"), ("tag", "s1")]).tag.as_deref(),
+            Some("s1")
+        );
+        // No tag field (default trace columns): fall back to the name.
+        assert_eq!(rec(&[("name", "P:X (s1)")]).tag.as_deref(), Some("s1"));
     }
 
     #[test]

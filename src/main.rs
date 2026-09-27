@@ -6,15 +6,12 @@
 //!
 //! Works offline, on any executor, on runs you did not execute through Seqera Platform.
 
-mod analysis;
-mod compare;
-mod input;
-mod model;
-
-use analysis::{analyse, fmt_time_h, recommend, Rates, RunStats};
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use nf_audit::analysis::{self, analyse, fmt_time_h, recommend, Rates, RunStats};
+use nf_audit::{compare, display_names, input};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -42,13 +39,13 @@ enum Cmd {
         #[arg(long, default_value = "seqera-compute")]
         rates: String,
         /// Override price per CPU-hour (USD).
-        #[arg(long)]
+        #[arg(long, value_parser = price_arg)]
         cpu_hour: Option<f64>,
         /// Override price per GiB-hour (USD).
-        #[arg(long)]
+        #[arg(long, value_parser = price_arg)]
         gib_hour: Option<f64>,
-        /// Safety margin applied to observed peaks when recommending new requests.
-        #[arg(long, default_value_t = 1.25)]
+        /// Safety margin applied to observed peaks when recommending new requests (at least 1).
+        #[arg(long, default_value_t = 1.25, value_parser = margin_arg)]
         margin: f64,
         /// Write a right-sized nextflow.config fragment here.
         #[arg(long)]
@@ -69,10 +66,10 @@ enum Cmd {
         #[arg(long, default_value = "seqera-compute")]
         rates: String,
         /// Override price per CPU-hour (USD).
-        #[arg(long)]
+        #[arg(long, value_parser = price_arg)]
         cpu_hour: Option<f64>,
         /// Override price per GiB-hour (USD).
-        #[arg(long)]
+        #[arg(long, value_parser = price_arg)]
         gib_hour: Option<f64>,
         /// Rows in the process-share matrix.
         #[arg(long, default_value_t = 15)]
@@ -87,12 +84,30 @@ enum Cmd {
     },
 }
 
+fn margin_arg(s: &str) -> std::result::Result<f64, String> {
+    match s.parse::<f64>() {
+        Ok(m) if m.is_finite() && m >= 1.0 => Ok(m),
+        _ => Err(
+            "must be a number >= 1 (a margin below 1 would size below the observed peak)".into(),
+        ),
+    }
+}
+
+fn price_arg(s: &str) -> std::result::Result<f64, String> {
+    match s.parse::<f64>() {
+        Ok(p) if p.is_finite() && p >= 0.0 => Ok(p),
+        _ => Err("must be a non-negative number of USD".into()),
+    }
+}
+
 #[derive(serde::Serialize)]
 struct AnalyzeJson<'a> {
     rates: &'a Rates,
     run: &'a RunStats,
     meta: &'a input::RunMeta,
     recommendations: &'a [analysis::Recommendation],
+    /// Processes with requests that were not sized (too few tasks completed with both metrics).
+    not_sized: Vec<&'a str>,
 }
 
 #[derive(serde::Serialize)]
@@ -108,7 +123,28 @@ struct InspectJson {
     columns: Vec<String>,
 }
 
+/// `println!` / `print!` that return an error instead of panicking when stdout is closed
+/// (`nf-audit inspect report.html | head -1`).
+macro_rules! out {
+    ($($t:tt)*) => { writeln!(std::io::stdout(), $($t)*)? };
+}
+macro_rules! outp {
+    ($($t:tt)*) => { write!(std::io::stdout(), $($t)*)? };
+}
+
 fn main() -> Result<()> {
+    match run() {
+        Err(e)
+            if e.downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe) =>
+        {
+            Ok(())
+        }
+        r => r,
+    }
+}
+
+fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Inspect { path, json } => inspect(&path, json),
@@ -128,7 +164,7 @@ fn main() -> Result<()> {
                 r.gib_hour = g;
             }
             let runs = compare::load_runs(&reports, &r)?;
-            print!("{}", compare::render_markdown(&runs, &r, top));
+            outp!("{}", compare::render_markdown(&runs, &r, top));
             Ok(())
         }
         Cmd::Analyze {
@@ -158,22 +194,33 @@ fn main() -> Result<()> {
                 Some(p) => input::read_report_with_meta(p)?,
                 None => (Vec::new(), input::RunMeta::default()),
             };
-            if t.is_empty() && rep.is_empty() {
+            if trace.is_none() && report.is_none() {
                 return Err(anyhow!("give --trace and/or --report"));
+            }
+            if t.is_empty() && rep.is_empty() {
+                return Err(anyhow!(
+                    "no tasks in the given file(s): the run recorded none"
+                ));
             }
             let tasks = input::merge(t, rep);
             let run = analyse(&tasks, &r);
             let recs = recommend(&run, &r, margin);
+            // Written before stdout, so a closed pipe cannot skip it.
+            if let Some(out) = config_out {
+                fs::write(&out, analysis::render_config(&recs))?;
+                eprintln!("wrote {}", out.display());
+            }
             if json {
                 let payload = AnalyzeJson {
                     rates: &r,
                     run: &run,
                     meta: &meta,
                     recommendations: &recs,
+                    not_sized: analysis::not_sized(&run),
                 };
-                println!("{}", serde_json::to_string_pretty(&payload)?);
+                out!("{}", serde_json::to_string_pretty(&payload)?);
             } else {
-                print!(
+                outp!(
                     "{}",
                     render_markdown(
                         &run,
@@ -185,10 +232,6 @@ fn main() -> Result<()> {
                         &meta
                     )
                 );
-            }
-            if let Some(out) = config_out {
-                fs::write(&out, render_config(&recs))?;
-                eprintln!("wrote {}", out.display());
             }
             Ok(())
         }
@@ -217,54 +260,68 @@ fn inspect(path: &std::path::Path, as_json: bool) -> Result<()> {
                 tasks_with_metrics: with_metrics,
                 columns: Vec::new(),
             };
-            println!("{}", serde_json::to_string_pretty(&info)?);
+            out!("{}", serde_json::to_string_pretty(&info)?);
             return Ok(());
         }
         if let Some(line) = meta.summary_line() {
-            println!("run: {line}");
+            out!("run: {line}");
         }
         if let Some(c) = &meta.command {
-            println!("command: {c}");
+            out!("command: {c}");
         }
         if let Some(w) = &meta.wave {
-            println!("wave: {w}");
+            out!("wave: {w}");
         }
         if let Some(c) = &meta.cpu_hours {
-            println!("nextflow's own CPU-hours figure: {c}");
+            out!("nextflow's own CPU-hours figure: {c}");
         }
-        println!("report: {} tasks, {} with requested cpus+memory, {} with usage metrics (%cpu/peak_rss)", tasks.len(), with_req, with_metrics);
+        out!("report: {} tasks, {} with requested cpus+memory, {} with usage metrics (%cpu/peak_rss)", tasks.len(), with_req, with_metrics);
         if with_metrics == 0 && !tasks.is_empty() {
-            println!(
-                "note: no task has usage metrics, so this run can be priced but not right-sized."
-            );
+            out!("note: no task has usage metrics, so this run can be priced but not right-sized.");
         }
         if let Some(t) = tasks.first() {
-            println!("first task: {} status={} cpus={:?} memory={:?} time={:?} realtime={:?}s %cpu={:?} peak_rss={:?}",
+            out!("first task: {} status={} cpus={:?} memory={:?} time={:?} realtime={:?}s %cpu={:?} peak_rss={:?}",
                 t.name, t.status, t.cpus, t.memory, t.time_s, t.realtime_s, t.pct_cpu, t.peak_rss);
         }
     } else {
         let text = fs::read_to_string(path)?;
         let header = text.lines().next().unwrap_or("");
-        let cols: Vec<&str> = header.split('\t').collect();
-        let tasks_count = text.lines().count().saturating_sub(1);
+        let cols: Vec<&str> = header.split('\t').map(str::trim).collect();
+        // Same task list `analyze --trace` uses: a hash the trace logs twice is one task.
+        let tasks = input::merge(input::read_trace(path)?, Vec::new());
+        let tasks_count = tasks.len();
+        let with_req = tasks
+            .iter()
+            .filter(|t| t.cpus.is_some() && t.memory.is_some())
+            .count();
+        let with_metrics = tasks
+            .iter()
+            .filter(|t| t.pct_cpu.is_some() || t.peak_rss.is_some())
+            .count();
         if as_json {
             let info = InspectJson {
                 file: path.display().to_string(),
                 kind: "trace",
                 meta: None,
                 tasks: tasks_count,
-                tasks_with_requests: 0,
-                tasks_with_metrics: 0,
+                tasks_with_requests: with_req,
+                tasks_with_metrics: with_metrics,
                 columns: cols.iter().map(|s| s.to_string()).collect(),
             };
-            println!("{}", serde_json::to_string_pretty(&info)?);
+            out!("{}", serde_json::to_string_pretty(&info)?);
             return Ok(());
         }
-        println!("trace: {} columns, {} tasks", cols.len(), tasks_count);
-        println!("columns: {}", cols.join(", "));
+        out!(
+            "trace: {} columns, {} tasks, {} with requested cpus+memory, {} with usage metrics (%cpu/peak_rss)",
+            cols.len(),
+            tasks_count,
+            with_req,
+            with_metrics
+        );
+        out!("columns: {}", cols.join(", "));
         let has = |c: &str| cols.contains(&c);
         if !(has("cpus") && has("memory")) {
-            println!("note: no `cpus`/`memory` columns. Pass the matching execution_report_*.html with --report to get requested resources, or add `trace.fields` to nextflow.config for future runs.");
+            out!("note: no `cpus`/`memory` columns. Pass the matching execution_report_*.html with --report to get requested resources, or add `trace.fields` to nextflow.config for future runs.");
         }
     }
     Ok(())
@@ -312,46 +369,79 @@ fn render_markdown(
     ));
 
     if run.tasks_without_requests > 0 {
-        s.push_str(&format!("> {} of {} tasks have no requested cpus/memory (trace-only input). Their cost is priced on *used* resources and is a floor, not an allocation cost. Pass `--report` for the real number.\n\n", run.tasks_without_requests, run.tasks));
+        s.push_str(&format!("> {} of {} tasks lack a requested cpus and/or memory value (a default trace carries neither; a process without a `memory` directive has none). The missing part is priced on *used* resources, so it is a floor, not an allocation cost. With a trace alone, pass the execution report with `--report`.\n\n", run.tasks_without_requests, run.tasks));
     }
     if run.tasks_without_metrics > 0 {
         let all = run.tasks_without_metrics == run.tasks;
         s.push_str(&format!(
-            "> {} of {} tasks carry no usage metrics (`%cpu` / `peak_rss` are `-`). Cost is still exact (it follows the request), but efficiency, waste and right-sizing {} Nextflow collects these through `ps` inside the task container; a container without procps, and some Fusion/Wave combinations, leave them empty.\n\n",
+            "> {} of {} tasks carry no usage metrics (`%cpu` / `peak_rss` are `-`). {}efficiency, waste and right-sizing {} Nextflow collects these through `ps` inside the task container; a container without procps, and some Fusion/Wave combinations, leave them empty.\n\n",
             run.tasks_without_metrics, run.tasks,
+            if run.tasks_without_requests == 0 { "Cost is still exact (it follows the request), but " } else { "Where a task has no request either, it adds nothing to the cost floor; " },
             if all { "cannot be computed for this run." } else { "are computed over the metered tasks only." }
         ));
     }
 
+    let requested = |h: f64| {
+        if run.tasks_without_requests == run.tasks {
+            "n/a".to_string()
+        } else {
+            format!("{h:.1}")
+        }
+    };
     s.push_str("## Totals\n\n");
     s.push_str("| metric | value |\n|---|---|\n");
-    s.push_str(&format!("| billed cost | {} |\n", money(run.total_cost)));
-    if run.tasks_without_metrics < run.tasks {
-        let metered_cost = run.cpu_h_req_metered * r.cpu_hour + run.gib_h_req_metered * r.gib_hour;
+    let basis = if run.tasks_without_requests == 0 {
+        "requested × run time"
+    } else if run.tasks_without_requests == run.tasks {
+        "used × run time, a floor"
+    } else {
+        "requested × run time; used where no request is known"
+    };
+    s.push_str(&format!("| cost ({basis}) | {} |\n", money(run.total_cost)));
+    if run.cached_tasks > 0 {
+        s.push_str(&format!(
+            "| of which cached tasks (`-resume`, priced at the original run's times) | {} ({} tasks) |\n",
+            money(run.cached_cost),
+            run.cached_tasks
+        ));
+    }
+    let metered_cost = run.cpu_h_req_metered * r.cpu_hour + run.gib_h_req_metered * r.gib_hour;
+    if metered_cost > 0.0 {
         s.push_str(&format!(
             "| of which allocated but unused | {} ({:.0}% of the {} metered) |\n",
             money(run.total_waste),
-            if metered_cost > 0.0 {
-                run.total_waste / metered_cost * 100.0
-            } else {
-                0.0
-            },
+            run.total_waste / metered_cost * 100.0,
             money(metered_cost)
         ));
     } else {
-        s.push_str("| of which allocated but unused | n/a (no usage metrics) |\n");
+        s.push_str(
+            "| of which allocated but unused | n/a (no task has both requests and usage metrics) |\n",
+        );
     }
     s.push_str(&format!(
         "| of which spent on failed attempts | {} |\n",
         money(run.failed_cost)
     ));
+    // The presets differ by an order of magnitude; show the run at each, so no one quotes one
+    // number without the others.
+    let others: Vec<String> = Rates::PRESETS
+        .iter()
+        .filter(|p| p.name != r.name || p.cpu_hour != r.cpu_hour || p.gib_hour != r.gib_hour)
+        .map(|p| format!("{} at `{}`", money(p.price(run)), p.name))
+        .collect();
+    if !others.is_empty() {
+        s.push_str(&format!(
+            "| the same run at other rates | {} |\n",
+            others.join(", ")
+        ));
+    }
     s.push_str(&format!(
         "| task run time (sum) | {:.1} h |\n",
         run.realtime_h
     ));
     s.push_str(&format!(
-        "| CPU-hours requested / used | {:.1} / {} ({}) |\n",
-        run.cpu_h_requested,
+        "| CPU-hours requested / used | {} / {} ({}) |\n",
+        requested(run.cpu_h_requested),
         if run.cpu_h_req_metered > 0.0 {
             format!("{:.1}", run.cpu_h_used)
         } else {
@@ -364,8 +454,8 @@ fn render_markdown(
         })
     ));
     s.push_str(&format!(
-        "| GiB-hours requested / used | {:.1} / {} ({}) |\n\n",
-        run.gib_h_requested,
+        "| GiB-hours requested / used | {} / {} ({}) |\n\n",
+        requested(run.gib_h_requested),
         if run.gib_h_req_metered > 0.0 {
             format!("{:.1}", run.gib_h_used)
         } else {
@@ -399,7 +489,11 @@ fn render_markdown(
             pct(p.cpu_efficiency()),
             pct(p.mem_efficiency()),
             p.waste(r).map(money).unwrap_or_else(|| "n/a".into()),
-            p.retried_tasks,
+            if p.attempts_known {
+                p.retried_tasks.to_string()
+            } else {
+                "n/a".into()
+            },
             p.failed_tasks
         ));
     }
@@ -428,7 +522,7 @@ fn render_markdown(
         for g in run.tags.iter().take(top) {
             s.push_str(&format!(
                 "| {} | {} | {} | {} | {} | {:.0}% | {} |\n",
-                g.tag.as_deref().unwrap_or("(untagged)"),
+                g.tag.as_deref().unwrap_or("(untagged)").replace('|', "\\|"),
                 g.tasks,
                 g.processes,
                 fmt_time_h(g.realtime_h),
@@ -440,8 +534,31 @@ fn render_markdown(
         s.push('\n');
     }
 
-    if recs.is_empty() && run.tasks_without_metrics == run.tasks {
+    let not_sized: Vec<&str> = analysis::not_sized(run)
+        .into_iter()
+        .map(|p| names.get(p).map(String::as_str).unwrap_or(p))
+        .collect();
+    let not_sized_note = if not_sized.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nNot sized, because fewer than half of their tasks completed with both `%cpu` and `peak_rss`: {}.\n",
+            not_sized.join(", ")
+        )
+    };
+    // A run with no metrics at all gets the one-line explanation below instead of a list.
+    let not_sized_note = if run.tasks_without_metrics == run.tasks {
+        String::new()
+    } else {
+        not_sized_note
+    };
+    if recs.is_empty() && !not_sized_note.is_empty() {
+        s.push_str("## Right-sizing\n");
+        s.push_str(&not_sized_note);
+    } else if recs.is_empty() && run.tasks_without_metrics == run.tasks {
         s.push_str("## Right-sizing\n\nSkipped: no task in this run has usage metrics, so there is no observed peak to size against. The requested-vs-used comparison needs a run whose trace carries `%cpu` and `peak_rss`.\n");
+    } else if recs.is_empty() && run.tasks_without_requests == run.tasks {
+        s.push_str("## Right-sizing\n\nSkipped: no task has a known request, so there is nothing to shrink. Pass the run's execution report with `--report`.\n");
     }
     if !recs.is_empty() {
         let total_saving: f64 = recs.iter().map(|x| x.saving).sum();
@@ -455,7 +572,7 @@ fn render_markdown(
             }
         ));
         s.push_str("| process | cpus now → new | memory now → new | time now → new | est. saving |\n|---|---:|---:|---:|---:|\n");
-        for x in recs.iter().take(top) {
+        for x in recs.iter().filter(|x| !x.needs_escalation).take(top) {
             let short = names
                 .get(x.process.as_str())
                 .map(String::as_str)
@@ -470,74 +587,35 @@ fn render_markdown(
                 "n/a".into()
             };
             s.push_str(&format!(
-                "| {} | {:.0} → {} | {:.0} GB → {:.0} GB | {} | {} |\n",
+                "| {} | {:.0} → {} | {} → {} | {} | {} |\n",
                 short,
                 x.cpus_now,
                 x.cpus_new,
-                x.mem_now_gib,
-                x.mem_new_gib,
+                analysis::fmt_gib(x.mem_now_gib),
+                analysis::fmt_gib(x.mem_new_gib),
                 time,
                 money(x.saving)
             ));
         }
-        s.push_str("\nSavings assume the same run time at the smaller allocation, which holds for memory and for CPU-bound processes that were not using the extra cores. Validate on one real run before rolling out; a process at 100% CPU efficiency will slow down if you cut its cores.\n");
-    }
-    s
-}
-
-/// Short display name per process: the last path component, widened to `PARENT:NAME` when
-/// two processes share a last component (nf-core/rnaseq runs `SALMON_QUANT` under both
-/// `QUANTIFY_STAR_SALMON` and `QUANTIFY_PSEUDO_ALIGNMENT`, for example).
-pub(crate) fn display_names<'a>(
-    processes: impl Iterator<Item = &'a str>,
-) -> std::collections::HashMap<&'a str, String> {
-    let all: Vec<&str> = processes.collect();
-    let mut last_count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for p in &all {
-        *last_count
-            .entry(p.rsplit(':').next().unwrap_or(p))
-            .or_default() += 1;
-    }
-    all.into_iter()
-        .map(|p| {
-            let mut parts = p.rsplit(':');
-            let last = parts.next().unwrap_or(p);
-            let name = if last_count[last] > 1 {
-                match parts.next() {
-                    Some(parent) => format!("{parent}:{last}"),
-                    None => last.to_string(),
-                }
-            } else {
-                last.to_string()
-            };
-            (p, name)
-        })
-        .collect()
-}
-
-fn render_config(recs: &[analysis::Recommendation]) -> String {
-    let mut s = String::from("// Generated by nf-audit. Review before use; apply with `-c nf-audit.config`.\nprocess {\n");
-    for x in recs {
-        if x.saving <= 0.0 {
-            continue;
-        }
-        s.push_str(&format!(
-            "    withName: '{}' {{\n        cpus   = {}\n        memory = '{:.0}.GB'\n",
-            x.process, x.cpus_new, x.mem_new_gib
-        ));
-        if x.time_new_h > 0.0 {
+        let kept: Vec<&str> = recs
+            .iter()
+            .filter(|x| x.needs_escalation)
+            .map(|x| {
+                names
+                    .get(x.process.as_str())
+                    .map(String::as_str)
+                    .unwrap_or(&x.process)
+            })
+            .collect();
+        if !kept.is_empty() {
             s.push_str(&format!(
-                "        time   = '{}'\n",
-                if x.time_new_h < 1.0 {
-                    format!("{}.m", (x.time_new_h * 60.0).round() as u32)
-                } else {
-                    format!("{}.h", x.time_new_h.ceil() as u32)
-                }
+                "\nLeft as they are, and not in the config fragment, because some of their tasks used more memory or time than the first attempt's request, were retried at a larger one, or were killed (exit 130–145 or 104, which nf-core treats as out of resources, or stopped at the time limit with no exit code); shrinking them could make those tasks fail: {}.\n",
+                kept.join(", ")
             ));
         }
-        s.push_str("    }\n");
+        s.push_str(&not_sized_note);
+        s.push_str("\nSavings assume the same run time at the smaller allocation, which holds for memory and for CPU-bound processes that were not using the extra cores. Validate on one real run before rolling out; a process at 100% CPU efficiency will slow down if you cut its cores.\n");
     }
-    s.push_str("}\n");
     s
 }
 
@@ -545,12 +623,27 @@ fn render_config(recs: &[analysis::Recommendation]) -> String {
 mod tests {
     use super::*;
 
+    /// Trace-only input: the cost is a floor on used resources, and nothing about requests or
+    /// waste is shown as a number.
     #[test]
-    fn ambiguous_last_components_get_their_parent() {
-        let n = display_names(["A:B:X", "A:C:X", "A:D:Y"].into_iter());
-        assert_eq!(n["A:B:X"], "B:X");
-        assert_eq!(n["A:C:X"], "C:X");
-        assert_eq!(n["A:D:Y"], "Y");
+    fn trace_only_totals_say_unknown() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata");
+        let tasks = input::read_trace(&root.join("execution_trace_synthetic.txt")).unwrap();
+        let r = Rates::SEQERA_COMPUTE;
+        let run = analyse(&tasks, &r);
+        let md = render_markdown(
+            &run,
+            &r,
+            &recommend(&run, &r, 1.25),
+            25,
+            None,
+            None,
+            &Default::default(),
+        );
+        assert!(md.contains("| cost (used × run time, a floor) |"), "{md}");
+        assert!(md.contains("| of which allocated but unused | n/a"));
+        assert!(md.contains("| CPU-hours requested / used | n/a /"));
+        assert!(!md.contains("$0.00 (0%"));
     }
 
     #[test]

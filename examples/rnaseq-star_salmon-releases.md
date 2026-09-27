@@ -11,7 +11,7 @@
 | 3.2 salmon 2021-06-18 | 21.04.0 | ? | 285 | 0 | 13h 49m 33s | 573 | 3435 | $143.14 | 285/285 | 68% | STAR_ALIGN 21% |
 | 3.3 salmon 2021-07-29 | 21.04.0 | ? | 285 | 0 | 16h 48m 1s | 551 | 3304 | $137.67 | 285/285 | 67% | STAR_ALIGN 22% |
 | 3.4 salmon 2021-10-07 | 21.08.0.edge | ? | 285 | 0 | 14h 8m 56s | 546 | 3274 | $136.42 | 285/285 | 68% | STAR_ALIGN 21% |
-| 3.5 salmon 2021-12-20 | 21.10.3 | ? | 303 | 10 | 1d 6h 19m 37s | 1310 | 8051 | $332.25 | 294/303 | 81% | RSEQC_TIN 54% |
+| 3.5 salmon 2021-12-20 | 21.10.3 | ? | 303 (18 cached) | 10 | 1d 6h 19m 37s | 1310 | 8051 | $332.25 | 294/303 | 81% | RSEQC_TIN 54% |
 | 3.6 salmon 2022-03-09 | 22.02.1.edge | ? | 298 | 13 | 9h 49m 54s | 674 | 4335 | $175.83 | 285/298 | 73% | TRIMGALORE 32% |
 | 3.7 salmon 2022-05-03 | 22.04.0 | ? | 286 | 1 | 10h 39m 13s | 562 | 3371 | $140.45 | 285/286 | 67% | STAR_ALIGN 21% |
 | 3.8 salmon 2022-05-25 | 22.04.2 | ? | 285 | 0 | 8h 51m 24s | 537 | 3223 | $134.30 | 285/285 | 67% | STAR_ALIGN 21% |
@@ -21,6 +21,8 @@
 | 3.11.1 salmon 2023-03-31 | 23.03.0-edge | ? | 277 | 0 | 4h 18m 50s | 337 | 2023 | $84.30 | 277/277 | 64% | STAR_ALIGN_IGENOMES 23% |
 | 3.11.2 salmon 2023-04-25 | 23.04.1 | ? | 277 | 0 | 4h 14m 34s | 330 | 1982 | $82.58 | 277/277 | 64% | STAR_ALIGN_IGENOMES 24% |
 | 3.12.0 salmon 2023-06-02 | 23.04.1 | ? | 277 | 0 | 4h 5m 29s | 338 | 2031 | $84.62 | 277/277 | 64% | STAR_ALIGN_IGENOMES 23% |
+| master@b59e87a salmon 2023-11-17 | 23.10.0 | ? | 276 | 0 | 4h 39m 58s | 344 | 2066 | $86.10 | 276/276 | 64% | STAR_ALIGN_IGENOMES 23% |
+| master@a10f41a salmon 2023-11-21 | 23.10.0 | ? | 276 | 0 | 4h 50m 16s | 351 | 2104 | $87.66 | 276/276 | 64% | STAR_ALIGN_IGENOMES 22% |
 | 3.14.0 salmon 2024-01-08 | 23.10.0 | ? | 276 | 0 | 4h 56m 39s | 326 | 1955 | $81.44 | 276/276 | 66% | STAR_ALIGN_IGENOMES 23% |
 | 3.15.0 salmon 2024-09-05 | 24.04.4 | 2.3 | 283 | 0 | 6h 48m 43s | 306 | 1836 | $76.51 | 283/283 | 66% | STAR_ALIGN_IGENOMES 24% |
 | 3.15.1 salmon 2024-09-16 | 24.04.4 | 2.3 | 283 | 0 | 5h 8m 46s | 317 | 1901 | $79.23 | 283/283 | 66% | STAR_ALIGN_IGENOMES 24% |
@@ -35,8 +37,6 @@
 | 3.24.0 salmon 2026-04-09 | 25.10.4 | 2.4 | 303 | 0 | 9h 39m 11s | 329 | 1976 | $82.33 | 303/303 | 66% | STAR_ALIGN_IGENOMES 31% |
 | 3.25.0 salmon 2026-04-24 | 25.10.4 | 2.4 | 327 | 0 | 14h 34m 34s | 317 | 1903 | $79.29 | 327/327 | 66% | STAR_ALIGN_IGENOMES 30% |
 | 3.26.0 salmon 2026-05-07 | 25.10.5 | 2.4 | 328 | 0 | 4h 28m 37s | 246 | 1401 | $59.64 | 328/328 | 62% | STAR_ALIGN 27% |
-| master salmon 2023-11-17 | 23.10.0 | ? | 276 | 0 | 4h 39m 58s | 344 | 2066 | $86.10 | 276/276 | 64% | STAR_ALIGN_IGENOMES 23% |
-| master salmon 2023-11-21 | 23.10.0 | ? | 276 | 0 | 4h 50m 16s | 351 | 2104 | $87.66 | 276/276 | 64% | STAR_ALIGN_IGENOMES 22% |
 
 Sources:
 
@@ -54,6 +54,8 @@ Sources:
 - 3.11.1 salmon 2023-03-31 — `data/rnaseq/results-287afcfe30a93de77e9b7cf70a1085f58c9525d8/aligner_star_salmon/pipeline_info/execution_report_2023-03-31_16-12-02.html`
 - 3.11.2 salmon 2023-04-25 — `data/rnaseq/results-5671b65af97fe78a2f9b4d05d850304918b1b86e/aligner_star_salmon/pipeline_info/execution_report_2023-04-25_10-57-49.html`
 - 3.12.0 salmon 2023-06-02 — `data/rnaseq/results-3bec2331cac2b5ff88a1dc71a21fab6529b57a0f/aligner_star_salmon/pipeline_info/execution_report_2023-06-02_15-44-44.html`
+- master@b59e87a salmon 2023-11-17 — `data/rnaseq/results-b59e87a54eae60e02f9ae12e3b9c9c59959328d7/aligner_star_salmon/pipeline_info/execution_report_2023-11-17_18-06-19.html`
+- master@a10f41a salmon 2023-11-21 — `data/rnaseq/results-a10f41afa204538d5dcc89a5910c299d68f94f41/aligner_star_salmon/pipeline_info/execution_report_2023-11-21_11-38-44.html`
 - 3.14.0 salmon 2024-01-08 — `data/rnaseq/results-b89fac32650aacc86fcda9ee77e00612a1d77066/aligner_star_salmon/pipeline_info/execution_report_2024-01-08_17-25-43.html`
 - 3.15.0 salmon 2024-09-05 — `data/rnaseq/results-4e34945f6ca86621a08e7d573cd6b4fbb7fb1f0e/aligner_star_salmon/pipeline_info/execution_report_2024-09-05_08-48-53.html`
 - 3.15.1 salmon 2024-09-16 — `data/rnaseq/results-4053b2ec173fc0cfdd13ff2b51cfaceb59f783cb/aligner_star_salmon/pipeline_info/execution_report_2024-09-16_16-33-21.html`
@@ -68,24 +70,22 @@ Sources:
 - 3.24.0 salmon 2026-04-09 — `data/rnaseq/results-47b3b0d3daad69e99d45c9e2dd8db19ee28307a1/aligner_star_salmon/pipeline_info/execution_report_2026-04-09_16-53-04.html`
 - 3.25.0 salmon 2026-04-24 — `data/rnaseq/results-891468c53574d531ae3f75b3a558552839cf973d/aligner_star_salmon/pipeline_info/execution_report_2026-04-24_16-05-23.html`
 - 3.26.0 salmon 2026-05-07 — `data/rnaseq/results-e7ca46272c8f9d5ceee3f71759f4ba551d3217a4/aligner_star_salmon/pipeline_info/execution_report_2026-05-07_15-32-01.html`
-- master salmon 2023-11-17 — `data/rnaseq/results-b59e87a54eae60e02f9ae12e3b9c9c59959328d7/aligner_star_salmon/pipeline_info/execution_report_2023-11-17_18-06-19.html`
-- master salmon 2023-11-21 — `data/rnaseq/results-a10f41afa204538d5dcc89a5910c299d68f94f41/aligner_star_salmon/pipeline_info/execution_report_2023-11-21_11-38-44.html`
 
 ## Cost share by process (top 12, % of each run's cost)
 
-| process | 3.1 salmon 2021-05-14 | 3.2 salmon 2021-06-18 | 3.3 salmon 2021-07-29 | 3.4 salmon 2021-10-07 | 3.5 salmon 2021-12-20 | 3.6 salmon 2022-03-09 | 3.7 salmon 2022-05-03 | 3.8 salmon 2022-05-25 | 3.8.1 salmon 2022-05-27 | 3.9 salmon 2022-09-30 | 3.10.1 salmon 2023-01-05 | 3.11.1 salmon 2023-03-31 | 3.11.2 salmon 2023-04-25 | 3.12.0 salmon 2023-06-02 | 3.14.0 salmon 2024-01-08 | 3.15.0 salmon 2024-09-05 | 3.15.1 salmon 2024-09-16 | 3.16.0 salmon 2024-10-02 | 3.16.1 salmon 2024-10-16 | 3.17.0 salmon 2024-10-24 | 3.18.0 salmon 2024-12-20 | 3.22.0 salmon 2025-11-27 | 3.22.1 salmon 2025-12-05 | 3.22.2 salmon 2025-12-12 | 3.23.0 salmon 2026-02-27 | 3.24.0 salmon 2026-04-09 | 3.25.0 salmon 2026-04-24 | 3.26.0 salmon 2026-05-07 | master salmon 2023-11-17 | master salmon 2023-11-21 |
+| process | 3.1 salmon 2021-05-14 | 3.2 salmon 2021-06-18 | 3.3 salmon 2021-07-29 | 3.4 salmon 2021-10-07 | 3.5 salmon 2021-12-20 | 3.6 salmon 2022-03-09 | 3.7 salmon 2022-05-03 | 3.8 salmon 2022-05-25 | 3.8.1 salmon 2022-05-27 | 3.9 salmon 2022-09-30 | 3.10.1 salmon 2023-01-05 | 3.11.1 salmon 2023-03-31 | 3.11.2 salmon 2023-04-25 | 3.12.0 salmon 2023-06-02 | master@b59e87a salmon 2023-11-17 | master@a10f41a salmon 2023-11-21 | 3.14.0 salmon 2024-01-08 | 3.15.0 salmon 2024-09-05 | 3.15.1 salmon 2024-09-16 | 3.16.0 salmon 2024-10-02 | 3.16.1 salmon 2024-10-16 | 3.17.0 salmon 2024-10-24 | 3.18.0 salmon 2024-12-20 | 3.22.0 salmon 2025-11-27 | 3.22.1 salmon 2025-12-05 | 3.22.2 salmon 2025-12-12 | 3.23.0 salmon 2026-02-27 | 3.24.0 salmon 2026-04-09 | 3.25.0 salmon 2026-04-24 | 3.26.0 salmon 2026-05-07 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| TRIMGALORE | 20 | 21 | 20 | 20 | 9 | 32 | 19 | 20 | 20 | 15 | 17 | 18 | 17 | 17 | 17 | 17 | 17 | 17 | 17 | 17 | 17 | 18 | 18 | 17 | 17 | 16 | 17 | 2 | 17 | 18 |
-| QUALIMAP_RNASEQ | 18 | 18 | 17 | 18 | 7 | 18 | 16 | 17 | 17 | 18 | 19 | 20 | 20 | 20 | 21 | 23 | 23 | 22 | 22 | 23 | 22 | 9 | 9 | 11 | 9 | 8 | 8 | 12 | 20 | 20 |
-| STAR_ALIGN_IGENOMES | · | · | · | · | · | · | · | · | 21 | 23 | 24 | 23 | 24 | 23 | 23 | 24 | 24 | 24 | 24 | 24 | 24 | 31 | 30 | 31 | 31 | 31 | 30 | · | 23 | 22 |
-| PICARD_MARKDUPLICATES | 9 | 9 | 9 | 10 | 5 | 8 | 13 | 9 | 9 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 11 | 11 | 11 | 11 | 11 | 11 | 15 | 10 | 10 |
-| STAR_ALIGN | 22 | 21 | 22 | 21 | 11 | 17 | 21 | 21 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | 27 | · | · |
+| TRIMGALORE | 20 | 21 | 20 | 20 | 9 | 32 | 19 | 20 | 20 | 15 | 17 | 18 | 17 | 17 | 17 | 18 | 17 | 17 | 17 | 17 | 17 | 17 | 17 | 18 | 18 | 17 | 17 | 16 | 17 | 2 |
+| QUALIMAP_RNASEQ | 18 | 18 | 17 | 18 | 7 | 18 | 16 | 17 | 17 | 18 | 19 | 20 | 20 | 20 | 20 | 20 | 21 | 23 | 23 | 22 | 22 | 23 | 22 | 9 | 9 | 11 | 9 | 8 | 8 | 12 |
+| STAR_ALIGN_IGENOMES | · | · | · | · | · | · | · | · | 21 | 23 | 24 | 23 | 24 | 23 | 23 | 22 | 23 | 24 | 24 | 24 | 24 | 24 | 24 | 31 | 30 | 31 | 31 | 31 | 30 | · |
+| PICARD_MARKDUPLICATES | 9 | 9 | 9 | 10 | 5 | 8 | 13 | 9 | 9 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 11 | 11 | 11 | 11 | 11 | 11 | 15 |
+| STAR_ALIGN | 22 | 21 | 22 | 21 | 11 | 17 | 21 | 21 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | 27 |
 | RSEQC_TIN | · | · | · | · | 54 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · |
-| RSEQC_READDUPLICATION | 3 | 3 | 3 | 3 | 1 | 2 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 4 | 4 | 4 | 6 | 3 | 3 |
+| RSEQC_READDUPLICATION | 3 | 3 | 3 | 3 | 1 | 2 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 4 | 4 | 4 | 6 |
 | QUANTIFY_SALMON:SALMON_QUANT | 4 | 4 | 4 | 4 | 2 | 3 | 5 | 6 | 7 | 8 | 4 | 4 | 4 | 5 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · |
-| BEDTOOLS_GENOMECOV | 3 | 3 | 3 | 3 | 1 | 3 | 3 | 3 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | · | · | · | · | · | · | · | · | · | · | · | · | · | 4 | 4 |
-| DUPRADAR | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 3 | 4 | 4 | 3 | 3 | 6 | 7 | 4 | 2 | 2 |
+| BEDTOOLS_GENOMECOV | 3 | 3 | 3 | 3 | 1 | 3 | 3 | 3 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 4 | · | · | · | · | · | · | · | · | · | · | · | · | · |
+| DUPRADAR | 1 | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 3 | 4 | 4 | 3 | 3 | 6 | 7 | 4 |
 | PRESEQ_LCEXTRAP | 5 | 5 | 5 | 5 | 2 | 4 | 4 | 5 | 5 | 1 | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · | · |
-| FASTQC | 2 | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 3 | 2 | 2 | 1 | 1 | 1 | 1 | 2 | 2 |
+| FASTQC | 2 | 2 | 2 | 2 | 1 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 3 | 2 | 2 | 1 | 1 | 1 | 1 |
 
-`·` = process absent from that run.
+`·` = no process by that name in that run. A name that is ambiguous within some run keeps its parent (`QUANTIFY_SALMON:SALMON_QUANT`), so the same tool under another subworkflow is a separate row, which may fall outside the top rows shown.

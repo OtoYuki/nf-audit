@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1" # weekly: the corpus job also checks the public bucket still serves the pinned files
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - run: rustup target add x86_64-unknown-linux-musl && cargo build --release --locked --target x86_64-unknown-linux-musl
+      - run: shellcheck scripts/*.sh examples/rsem-threads/*.sh
+
+  msrv:
+    # The oldest Rust that Cargo.toml's rust-version promises.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88
+      - run: cargo test --locked
+
+  nextflow-e2e:
+    # Runs a small pipeline in real Nextflow, audits it, and applies the generated fragment.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/e2e-nextflow.sh
+
+  corpus:
+    # Every committed example regenerates byte for byte, and every figure the docs quote about
+    # the megatest corpus is recomputed from the raw reports (tests/corpus.rs).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        # The weekly run skips the cache so that the corpus comes from the bucket itself.
+        if: github.event_name != 'schedule'
+        with:
+          path: data
+          key: corpus-${{ hashFiles('examples/corpus.sha256') }}
+      - run: scripts/pull-megatests.sh --corpus
+      - run: scripts/regen-examples.sh --check
+      - run: cargo test --release --locked --test corpus -- --ignored

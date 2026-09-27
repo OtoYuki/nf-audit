@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 P="${1:-12}"
 RSEM_IMG=community.wave.seqera.io/library/rsem_star:5acb4e8c03239c32
 d=runs/io_p$P; podman unshare rm -rf "$d"; mkdir -p "$d"; chmod 777 "$d"
-podman run --rm --cpus="$P" -v "$PWD":/w -w /w/$d $RSEM_IMG bash -c "
+podman run --rm --cpus="$P" -v "$PWD":/w -w /w/"$d" $RSEM_IMG bash -c "
   ( while sleep 0.5; do for p in \$(pgrep -f 'rsem-|samtools'); do
       [ -r /proc/\$p/io ] && echo \"\$p \$(tr -d '\n' < /proc/\$p/cmdline | cut -c1-40) \$(grep -E '^(rchar|wchar)' /proc/\$p/io | awk '{printf \"%s \", \$2}')\"; done; done ) > io.samples &
   rsem-calculate-expression --num-threads $P --temporary-folder ./tmp/ --alignments \

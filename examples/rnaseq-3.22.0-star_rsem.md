@@ -10,9 +10,10 @@
 
 | metric | value |
 |---|---|
-| billed cost | $294.25 |
+| cost (requested × run time) | $294.25 |
 | of which allocated but unused | $247.22 (84% of the $294.25 metered) |
 | of which spent on failed attempts | $0.00 |
+| the same run at other rates | $65.91 at `aws-m5-ondemand`, $23.07 at `aws-m5-spot` |
 | task run time (sum) | 126.0 h |
 | CPU-hours requested / used | 1177.0 / 192.4 (16%) |
 | GiB-hours requested / used | 7062.0 / 1113.2 (16%) |
@@ -58,9 +59,8 @@ The tag is the text in parentheses after the process name. nf-core pipelines usu
 | K562_REP1 | 36 | 36 | 13.8h | $31.19 | 11% | $26.44 |
 | genome.transcripts.fa | 1 | 1 | 27m | $0.69 | 0% | $0.28 |
 | rsem/genome.fa | 2 | 2 | 5m | $0.27 | 0% | $0.26 |
+| (untagged) | 5 | 5 | 3m | $0.04 | 0% | $0.03 |
 | all_samples | 2 | 2 | 1m | $0.04 | 0% | $0.03 |
-| (untagged) | 4 | 4 | 1m | $0.03 | 0% | $0.02 |
-| 1 | 1 | 1 | 1m | $0.01 | 0% | $0.00 |
 | genome.fa | 2 | 2 | 1m | $0.01 | 0% | $0.00 |
 | null | 1 | 1 | 1m | $0.00 | 0% | $0.00 |
 
