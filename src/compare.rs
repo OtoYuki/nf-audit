@@ -86,27 +86,26 @@ fn release_key(rev: &str) -> Option<Vec<u32>> {
 /// `FASTQ_FASTQC_UMITOOLS_TRIMGALORE:TRIMGALORE`).
 fn matrix_names(runs: &[Run]) -> HashMap<&str, String> {
     let leaf = |p: &str| p.rsplit(':').next().unwrap_or(p).to_string();
-    let mut ambiguous: std::collections::BTreeSet<String> = Default::default();
+    // Depth each last component needs, over all runs: the most any run needs to tell its
+    // processes with that last component apart.
+    let mut need: HashMap<String, usize> = HashMap::new();
     for run in runs {
-        let mut seen: HashMap<String, &str> = HashMap::new();
-        for p in &run.stats.processes {
-            if let Some(prev) = seen.insert(leaf(&p.process), &p.process) {
-                if prev != p.process {
-                    ambiguous.insert(leaf(&p.process));
-                }
-            }
+        let names: Vec<&str> = run
+            .stats
+            .processes
+            .iter()
+            .map(|p| p.process.as_str())
+            .collect();
+        for (p, k) in crate::unique_depths(&names) {
+            let e = need.entry(leaf(p)).or_insert(1);
+            *e = (*e).max(k);
         }
     }
     runs.iter()
         .flat_map(|r| r.stats.processes.iter())
         .map(|p| {
-            let mut parts = p.process.rsplit(':');
-            let last = parts.next().unwrap_or(&p.process);
-            let name = match parts.next() {
-                Some(parent) if ambiguous.contains(last) => format!("{parent}:{last}"),
-                _ => last.to_string(),
-            };
-            (p.process.as_str(), name)
+            let k = need.get(&leaf(&p.process)).copied().unwrap_or(1);
+            (p.process.as_str(), crate::name_suffix(&p.process, k))
         })
         .collect()
 }

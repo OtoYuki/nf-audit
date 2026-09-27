@@ -1114,3 +1114,44 @@ fn corpus_size_and_anchor_samples() {
         "99.9"
     );
 }
+
+/// README "What it reads": "Of the nf-core/rnaseq megatest runs, the June 2025 ones (Nextflow
+/// 25.04.2, Fusion 2.4) are unmetered": the two 3.19.0 runs and the six June 2025 `dev` runs
+/// under `results-dev/pipeline_info/`.
+#[test]
+#[ignore = "needs data/: scripts/pull-megatests.sh --corpus"]
+fn june_2025_runs_are_unmetered() {
+    let june: Vec<Run> = manifest("data/rnaseq/results-0bb032c1e3b1e1ff0b0a72192b9118fdb5062489/")
+        .into_iter()
+        .chain(manifest(
+            "data/rnaseq/results-dev/pipeline_info/execution_report_2025-06",
+        ))
+        .map(Run::load)
+        .collect();
+    assert_eq!(june.len(), 8);
+    for r in &june {
+        assert!(
+            r.meta.started.as_deref().unwrap().contains("-Jun-2025"),
+            "{}",
+            r.path.display()
+        );
+        assert_eq!(
+            r.meta.nextflow_version.as_deref(),
+            Some("25.04.2"),
+            "{}",
+            r.path.display()
+        );
+        assert_eq!(
+            r.meta.fusion.as_deref(),
+            Some("true, version 2.4"),
+            "{}",
+            r.path.display()
+        );
+        assert_eq!(
+            r.stats.tasks_without_metrics,
+            r.stats.tasks,
+            "{}",
+            r.path.display()
+        );
+    }
+}

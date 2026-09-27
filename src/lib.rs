@@ -9,33 +9,41 @@ pub mod compare;
 pub mod input;
 pub mod model;
 
-/// Short display name per process: the last path component, widened to `PARENT:NAME` when
-/// two processes share a last component (nf-core/rnaseq runs `SALMON_QUANT` under both
-/// `QUANTIFY_STAR_SALMON` and `QUANTIFY_PSEUDO_ALIGNMENT`, for example).
+/// The last `k` `:`-separated components of a process name (`A:B:C`, 2 -> `B:C`).
+pub fn name_suffix(process: &str, k: usize) -> String {
+    let parts: Vec<&str> = process.split(':').collect();
+    parts[parts.len().saturating_sub(k)..].join(":")
+}
+
+/// For each process, the fewest trailing components that tell it apart from every other
+/// process in `names` (1 = the bare last component).
+pub fn unique_depths<'a>(names: &[&'a str]) -> std::collections::HashMap<&'a str, usize> {
+    names
+        .iter()
+        .map(|&p| {
+            let max = p.split(':').count();
+            let k = (1..=max)
+                .find(|&k| {
+                    let mine = name_suffix(p, k);
+                    names.iter().all(|&q| q == p || name_suffix(q, k) != mine)
+                })
+                .unwrap_or(max);
+            (p, k)
+        })
+        .collect()
+}
+
+/// Short display name per process: the last path component, widened with parents until it is
+/// unique (nf-core/rnaseq runs `SALMON_QUANT` under both `QUANTIFY_STAR_SALMON` and
+/// `QUANTIFY_PSEUDO_ALIGNMENT`; sarek runs `CNVKIT_BATCH` under a germline and a somatic
+/// `BAM_VARIANT_CALLING_CNVKIT`, which needs a third component).
 pub fn display_names<'a>(
     processes: impl Iterator<Item = &'a str>,
 ) -> std::collections::HashMap<&'a str, String> {
     let all: Vec<&str> = processes.collect();
-    let mut last_count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for p in &all {
-        *last_count
-            .entry(p.rsplit(':').next().unwrap_or(p))
-            .or_default() += 1;
-    }
-    all.into_iter()
-        .map(|p| {
-            let mut parts = p.rsplit(':');
-            let last = parts.next().unwrap_or(p);
-            let name = if last_count[last] > 1 {
-                match parts.next() {
-                    Some(parent) => format!("{parent}:{last}"),
-                    None => last.to_string(),
-                }
-            } else {
-                last.to_string()
-            };
-            (p, name)
-        })
+    unique_depths(&all)
+        .into_iter()
+        .map(|(p, k)| (p, name_suffix(p, k)))
         .collect()
 }
 
@@ -49,5 +57,9 @@ mod tests {
         assert_eq!(n["A:B:X"], "B:X");
         assert_eq!(n["A:C:X"], "C:X");
         assert_eq!(n["A:D:Y"], "Y");
+        // The parent alone is not enough: germline and somatic share it.
+        let n = display_names(["S:GERM:CNV:BATCH", "S:SOM:CNV:BATCH"].into_iter());
+        assert_eq!(n["S:GERM:CNV:BATCH"], "GERM:CNV:BATCH");
+        assert_eq!(n["S:SOM:CNV:BATCH"], "SOM:CNV:BATCH");
     }
 }

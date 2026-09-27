@@ -518,7 +518,22 @@ fn render_markdown(
         s.push('\n');
     }
 
-    if recs.is_empty() && run.tasks_without_metrics == run.tasks {
+    let not_sized: Vec<&str> = analysis::not_sized(run)
+        .into_iter()
+        .map(|p| names.get(p).map(String::as_str).unwrap_or(p))
+        .collect();
+    let not_sized_note = if not_sized.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nNot sized, because fewer than half of their tasks completed with both `%cpu` and `peak_rss`: {}.\n",
+            not_sized.join(", ")
+        )
+    };
+    if recs.is_empty() && !not_sized.is_empty() {
+        s.push_str("## Right-sizing\n");
+        s.push_str(&not_sized_note);
+    } else if recs.is_empty() && run.tasks_without_metrics == run.tasks {
         s.push_str("## Right-sizing\n\nSkipped: no task in this run has usage metrics, so there is no observed peak to size against. The requested-vs-used comparison needs a run whose trace carries `%cpu` and `peak_rss`.\n");
     } else if recs.is_empty() && run.tasks_without_requests == run.tasks {
         s.push_str("## Right-sizing\n\nSkipped: no task has a known request, so there is nothing to shrink. Pass the run's execution report with `--report`.\n");
@@ -572,10 +587,11 @@ fn render_markdown(
             .collect();
         if !kept.is_empty() {
             s.push_str(&format!(
-                "\nLeft as they are, and not in the config fragment, because some of their tasks used more memory or time than the first attempt's request, were retried at a larger one, or were killed (exit 130–145 or 104, which nf-core treats as out of resources); shrinking them could make those tasks fail: {}.\n",
+                "\nLeft as they are, and not in the config fragment, because some of their tasks used more memory or time than the first attempt's request, were retried at a larger one, or were killed (exit 130–145 or 104, which nf-core treats as out of resources, or stopped at the time limit with no exit code); shrinking them could make those tasks fail: {}.\n",
                 kept.join(", ")
             ));
         }
+        s.push_str(&not_sized_note);
         s.push_str("\nSavings assume the same run time at the smaller allocation, which holds for memory and for CPU-bound processes that were not using the extra cores. Validate on one real run before rolling out; a process at 100% CPU efficiency will slow down if you cut its cores.\n");
     }
     s

@@ -386,7 +386,8 @@ pub struct Recommendation {
     pub saving: f64,
     /// Set when some task used more than the first attempt's request (its peak memory or its
     /// run time exceeds it), was retried at a larger request, or was killed (exit 130–145 or
-    /// 104). Shrinking such a process could make those tasks fail, so it is left alone. The process relies on the pipeline's retry
+    /// 104, or no exit code within 10% of its time limit). Shrinking such a process could make
+    /// those tasks fail, so it is left alone. The process relies on the pipeline's retry
     /// escalation, so no change is recommended and nothing is written to the config fragment.
     pub needs_escalation: bool,
 }
@@ -395,7 +396,8 @@ pub struct Recommendation {
 /// never below 1 CPU / 1 GiB unless the current request is lower, and never *above* the current
 /// request (this tool shrinks over-allocation; it does not diagnose OOM kills, which show up as
 /// failed tasks instead). "Current" is the first-attempt request, before retry escalation. A
-/// resource with no observation (`%cpu` or `peak_rss` never recorded) keeps its current request.
+/// process is sized only when at least half of its tasks completed with both `%cpu` and
+/// `peak_rss`; [`not_sized`] names the ones that were not.
 pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendation> {
     let mut out = Vec::new();
     for p in &run.processes {
@@ -412,18 +414,11 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
         let base = |b: f64, max: f64| if b > 0.0 { b } else { max };
         let cpus_now = base(p.base_cpus_requested, p.max_cpus_requested);
         let mem_now = base(p.base_mem_requested_gib, p.max_mem_requested_gib);
-        let cpus_new = if p.tasks_with_cpu > 0 {
-            ((p.max_cpu_used_cores * margin).ceil() as u32)
-                .max(1)
-                .min(cpus_now.ceil() as u32)
-        } else {
-            cpus_now.ceil() as u32
-        };
-        let mem_new = if p.tasks_with_rss > 0 {
-            round_mem_gib(p.max_rss_gib * margin).max(1.0).min(mem_now)
-        } else {
-            mem_now
-        };
+        // Both metrics were observed here: the completion check above requires them.
+        let cpus_new = ((p.max_cpu_used_cores * margin).ceil() as u32)
+            .max(1)
+            .min(cpus_now.ceil() as u32);
+        let mem_new = round_mem_gib(p.max_rss_gib * margin).max(1.0).min(mem_now);
         let time_now = base(p.base_time_limit_h, p.max_time_limit_h);
         let time_new = if time_now > 0.0 {
             round_time_h(p.max_realtime_h * margin.max(1.5)).min(time_now)
@@ -499,6 +494,18 @@ fn round_time_h(h: f64) -> f64 {
     } else {
         h.ceil()
     }
+}
+
+/// Processes with requests and some usage metrics that [`recommend`] did not size because fewer
+/// than half of their tasks completed with both `%cpu` and `peak_rss`.
+pub fn not_sized(run: &RunStats) -> Vec<&str> {
+    run.processes
+        .iter()
+        .filter(|p| {
+            p.has_requests && p.tasks_with_metrics > 0 && p.completed_with_metrics * 2 < p.tasks
+        })
+        .map(|p| p.process.as_str())
+        .collect()
 }
 
 /// The `nextflow.config` fragment for these recommendations: one `withName` block per process
@@ -783,16 +790,16 @@ mod tests {
             t.peak_rss = None;
         }
         let run = analyse(&tasks, &Rates::SEQERA_COMPUTE);
+        assert!(!run.processes.is_empty());
         for p in &run.processes {
             assert_eq!(p.mem_efficiency(), None, "{}", p.process);
             assert!(p.cpu_efficiency().is_some());
         }
-        for r in recommend(&run, &Rates::SEQERA_COMPUTE, 1.25) {
-            assert_eq!(r.mem_new_gib, r.mem_now_gib, "{}", r.process);
-        }
+        // No peak memory anywhere: nothing is sized, and every process is named as unsized.
+        assert!(recommend(&run, &Rates::SEQERA_COMPUTE, 1.25).is_empty());
+        assert_eq!(not_sized(&run).len(), run.processes.len());
     }
 
-    /// Retries escalate the request (`12 / 72` after `6 / 36`); "now" is the first-attempt value.
     #[test]
     fn current_request_is_the_first_attempt() {
         let mut tasks = fixtures();
