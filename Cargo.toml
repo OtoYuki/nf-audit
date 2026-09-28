@@ -7,6 +7,7 @@ description = "Cost and right-sizing audit of Nextflow runs from execution trace
 license = "MIT"
 authors = ["Sushant Hona"]
 repository = "https://github.com/OtoYuki/nf-audit"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/LICENSE"]
 
 [dependencies]
 anyhow = "1"
