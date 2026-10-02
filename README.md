@@ -23,7 +23,7 @@
   <img alt="Stacked columns, one per nf-core/rnaseq star_salmon release from 3.1 to 3.26.0: the cost of each full-size test run fell from $139 to $60, while the part reserved but never used stayed at 62–68% in 28 of 30 releases." src="docs/img/salmon-cost-light.svg">
 </picture>
 
-<sub>nf-audit's own output on 30 public nf-core/rnaseq test runs, drawn by <code>scripts/readme_figures.rs</code> and checked against the data in CI. Details in <a href="examples/README.md"><code>examples/</code></a>.</sub>
+<sub>nf-audit's own output on 30 public nf-core/rnaseq test runs, drawn by <code>scripts/readme_figures.rs</code> and checked against the data in CI. Details in <a href="examples/README.md"><code>examples/</code></a>; the full write-up is <a href="docs/rnaseq-61-runs.md">Where nf-core/rnaseq's compute goes</a>.</sub>
 
 ## Contents
 
@@ -175,7 +175,7 @@ The `--config-out` fragment writes whole GB and hours where the values are whole
 
 ## Examples
 
-`examples/` holds `nf-audit`'s own output on public nf-core megatest data: `compare` tables across 30 `star_salmon` releases (3.1 → 3.26.0) and 31 `star_rsem` releases (3.1 → 3.27.0), single-run breakdowns for the release Seqera's own cost figure is for (3.15.1 `star_salmon`) and for the first `star_rsem` run after STAR moved out of the RSEM task (3.22.0), and the local RSEM thread-scaling benchmark behind the finding below. `examples/README.md` states which runs went in, which were left out and why, and what the tables show.
+`examples/` holds `nf-audit`'s own output on public nf-core megatest data: `compare` tables across 30 `star_salmon` releases (3.1 → 3.26.0) and 31 `star_rsem` releases (3.1 → 3.27.0), single-run breakdowns for the release Seqera's own cost figure is for (3.15.1 `star_salmon`) and for the first `star_rsem` run after STAR moved out of the RSEM task (3.22.0), and the local RSEM thread-scaling benchmark behind the finding below. `examples/README.md` states which runs went in, which were left out and why, and what the tables show. The write-up [docs/rnaseq-61-runs.md](docs/rnaseq-61-runs.md) walks through all 61 runs, process by process.
 
 nf-core publishes the traces and reports of its full-size AWS test runs in a public bucket. Layout changed over time: older rnaseq runs keep one `pipeline_info/` per aligner (`aligner_star_salmon/`, `aligner_star_rsem/`), newer ones a single `pipeline_info/`. The script finds either.
 
@@ -188,7 +188,7 @@ scripts/pull-megatests.sh sarek results-dev
 
 Anchor to reconcile against: Seqera's published figure for nf-core/rnaseq **3.15.1** `test_full` on AWS Batch is $34.90 with Fusion and $58.40 on plain S3 (docs.seqera.io/platform-cloud/getting-started/rnaseq); the guide does not state the instance types, region or pricing behind those figures. That run is Seqera's own, not a megatest, but the megatest 3.15.1 `star_salmon` run (`-profile test_full_aws`, the same 8 full-size samples the guide uses) completed in 5h 8m 46s with 316.9 CPU-hours, which is the number Nextflow itself prints in the report header and which `nf-audit` reproduces exactly.
 
-**One finding from this corpus was filed upstream.** `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB / 16 h and, across the 45 completed tasks from 3.22.0 onward, used a median 1.04 cores. The full-size test of four of the five releases from 3.22.1 to 3.25.0 (all but 3.22.2) failed on that 16 h limit. Filed as [nf-core/rnaseq#1957](https://github.com/nf-core/rnaseq/issues/1957) (2026-09-25); the maintainer confirmed the analysis and opened [#1959](https://github.com/nf-core/rnaseq/pull/1959) (memory 16 GB, time 24 h, drop the unused BAM output). Both open as of 2026-09-27.
+**One finding from this corpus was filed upstream.** `RSEM_CALCULATEEXPRESSION` requests 12 CPUs / 72 GiB / 16 h and, across the 45 completed tasks from 3.22.0 onward, used a median 1.04 cores. The full-size test of four of the five releases from 3.22.1 to 3.25.0 (all but 3.22.2) failed on that 16 h limit. Filed as [nf-core/rnaseq#1957](https://github.com/nf-core/rnaseq/issues/1957) (2026-09-25); the maintainer confirmed the analysis and opened [#1959](https://github.com/nf-core/rnaseq/pull/1959) (memory 16 GB, time 24 h, drop the unused BAM output). Both open as of 2026-10-02.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/rsem-cores-dark.svg">
