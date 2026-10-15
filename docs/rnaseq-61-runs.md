@@ -74,8 +74,8 @@ These are selected rows; all 30 releases are in [`rnaseq-star_salmon-releases.md
 - **3.10.1 → 3.11.1 ($120.00 → $84.30).** This is the largest drop between two clean runs. (Only 3.5 → 3.6, driven by 3.5's `-resume` outlier, is larger; 3.6 → 3.7, with 13 failed attempts in 3.6, is almost as large.) It coincides with nf-core changing how these tests are launched in 3.11.0 ([#981](https://github.com/nf-core/rnaseq/pull/981)): a new CI workflow, with a renamed compute-environment secret, and the profile going from `test_full,aws_tower` to `test_full_aws`. I don't attribute that drop to either side.
 - **Between 3.18.0 and 3.22.0** the launch profile changed again (`test_full_aws` → `test_full`, already in place in the excluded 3.19.0 runs), with Nextflow going from 24.10 to 25.04. Changes across that boundary are equally unattributed. `STAR_ALIGN_IGENOMES` rising from $19.24 (3.18.0) to $24.43 (3.22.0) is one of them.
 - **3.25.0 → 3.26.0 ($79.29 → $59.64).** nf-core changed two processes, and in both cases the tool changed too.
-  - `TRIMGALORE`: $13.15 → $1.34. It moved to Trim Galore 2.1.0 (#1789) and from 12 CPUs / 72 GiB to 8 CPUs / 1 GiB (#1836, #1841, #1842). Its run time fell from 4.38 h to 1.62 h despite fewer CPUs. How the $11.81 splits between shorter run time and smaller request depends on the order you apply them: time first gives $8.29 / $3.52, request first $2.28 / $9.53.
-  - STAR: $23.86 → $16.16. The legacy STAR 2.6.1d pin was dropped for 2.7.11b (#1835); STAR's request stayed at 12 / 72, so its saving is all run time.
+  - `TRIMGALORE`: $13.15 → $1.34. It moved to Trim Galore 2.1.0 ([#1789](https://github.com/nf-core/rnaseq/pull/1789)) and from 12 CPUs / 72 GiB to 8 CPUs / 1 GiB ([#1836](https://github.com/nf-core/rnaseq/pull/1836), [#1841](https://github.com/nf-core/rnaseq/pull/1841), [#1842](https://github.com/nf-core/rnaseq/pull/1842)). Its run time fell from 4.38 h to 1.62 h despite fewer CPUs. How the $11.81 splits between shorter run time and smaller request depends on the order you apply them: time first gives $8.29 / $3.52, request first $2.28 / $9.53.
+  - STAR: $23.86 → $16.16. The legacy STAR 2.6.1d pin was dropped for 2.7.11b ([#1835](https://github.com/nf-core/rnaseq/pull/1835)); STAR's request stayed at 12 / 72, so its saving is all run time.
   - The two differences sum to $19.51 of the $19.65 net drop. Other processes moved by up to $3.19 (`DUPRADAR`, down) between these two single runs, so the split is approximate.
 
 The unused share is the steadier signal. It held within 62–68% in every clean run, including after nf-core's own TRIMGALORE fix.
@@ -209,7 +209,7 @@ So RSEM can use its cores, and its parsing is fast on local disk. On the test in
 
 Two things hold on this evidence:
 1. **Memory can come down to 16 GiB.** The peak is 9.45 GiB or less in every completed task across seven releases.
-2. **More cores would most likely not have helped these failures.** In the three release-run failures where the step is visible, the task was still in RSEM's single-threaded parse step when the limit hit. A longer time limit would most likely let the test pass (3.27.0's MCF7_REP1 completed at 22.6 h). The underlying question is why parsing is so slow on the test infrastructure.
+2. **More cores would most likely not have helped these failures.** In the three release-run failures where the step is visible, the task was still in RSEM's single-threaded parse step when the limit hit. A longer time limit would most likely let the test pass (3.27.0's MCF7_REP1 completed at 22.6 h). The underlying question is why parsing is so slow on the test infrastructure (see *Upstream* below for a change that may bear on it).
 
 **The `dev`-branch runs.** `results-dev/aligner_star_rsem/` in the bucket holds 19 full-size `star_rsem` runs of the `dev` branch, from November 2025 to September 2026, stored outside the release prefixes:
 - 8 completed.
@@ -219,7 +219,7 @@ Two things hold on this evidence:
 
 So slow parsing is the usual pattern, not the only one.
 
-**It also predates the STAR split.** Three more full-size `dev` runs from June 2025, from before #1604, also stopped on the 16 h RSEM timeout. Each ends its stdout on `Parsed N entries` (66–96 million), while the task still ran STAR itself. So the STAR split explains why the request is now oversized, not why parsing is slow.
+**It also predates the STAR split.** Three more full-size `dev` runs from June 2025, from before [#1604](https://github.com/nf-core/rnaseq/pull/1604), also stopped on the 16 h RSEM timeout. Each ends its stdout on `Parsed N entries` (66–96 million), while the task still ran STAR itself. So the STAR split explains why the request is now oversized, not why parsing is slow.
 
 ## Comparing with Seqera's $34.90
 
@@ -273,11 +273,12 @@ What the fragments would save, as estimates:
 
 These are estimates from one run each, and the fragments are sized to *those* samples. Validate on one of your own runs before rolling out: a process that is already CPU-bound will slow down if you cut its cores. For scale, at the list rate a task-hour costs $3.00 at 12 CPU / 72 GiB, $1.60 at 12 / 16 and $0.80 at 4 / 16.
 
-**Upstream.** I reported the `star_rsem` timeouts to nf-core with the data above: [nf-core/rnaseq#1957](https://github.com/nf-core/rnaseq/issues/1957). A maintainer confirmed the numbers and opened [#1959](https://github.com/nf-core/rnaseq/pull/1959) against the `dev` branch. It is open and awaiting review at the time of writing (2 October 2026), and it:
+**Upstream.** I reported the `star_rsem` timeouts to nf-core with the data above: [nf-core/rnaseq#1957](https://github.com/nf-core/rnaseq/issues/1957). A maintainer confirmed the numbers and opened [#1959](https://github.com/nf-core/rnaseq/pull/1959) against the `dev` branch. It is open and awaiting review as of 15 October 2026, and it:
 - lowers the RSEM step's memory from 72 GB to 16 GB;
 - raises its time limit from 16 h to 24 h;
 - drops a transcript BAM that RSEM writes by default and the pipeline never uses;
-- leaves CPUs at 12.
+- leaves CPUs at 12;
+- since 6 October, also points RSEM's and dupradar's scratch files at node-local `/tmp` on the AWS full test, instead of the Fusion-backed task work directory (made possible by [nf-core/modules#13043](https://github.com/nf-core/modules/pull/13043)). That may bear on the slow parsing in section 3. I haven't tested it.
 
 The first full-size `star_rsem` test run after the fix is released will show whether it holds; I'll post those numbers on the issue.
 
