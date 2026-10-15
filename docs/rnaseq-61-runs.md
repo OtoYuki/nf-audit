@@ -295,4 +295,4 @@ nf-audit inspect results/pipeline_info/execution_report_*.html
 nf-audit analyze --report results/pipeline_info/execution_report_*.html --config-out right_sized.config
 ```
 
-MIT-licensed, one static binary: [github.com/OtoYuki/nf-audit](https://github.com/OtoYuki/nf-audit). If you run Nextflow at scale and want this done on your own runs, I do that as a fixed-fee audit.
+MIT-licensed, one static binary: [github.com/OtoYuki/nf-audit](https://github.com/OtoYuki/nf-audit).
