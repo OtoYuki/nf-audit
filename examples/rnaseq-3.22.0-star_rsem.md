@@ -68,7 +68,7 @@ The tag is the text in parentheses after the process name. nf-core pipelines usu
 
 | process | cpus now → new | memory now → new | time now → new | est. saving |
 |---|---:|---:|---:|---:|
-| RSEM_CALCULATEEXPRESSION | 12 → 2 | 72 GB → 12 GB | 16h → 16h | $184.83 |
+| RSEM_CALCULATEEXPRESSION | 12 → 2 | 72 GB → 12 GB | 16h → 16h (tight) | $184.83 |
 | TRIMGALORE | 12 → 10 | 72 GB → 2 GB | 16h → 2h | $8.89 |
 | STAR_ALIGN_IGENOMES | 12 → 6 | 72 GB → 42 GB | 16h → 2h | $8.72 |
 | QUALIMAP_RNASEQ | 6 → 2 | 36 GB → 8 GB | 8h → 1h | $5.02 |
@@ -88,5 +88,7 @@ The tag is the text in parentheses after the process name. nf-core pipelines usu
 | FQ_LINT | 2 → 2 | 12 GB → 1 GB | 4h → 15m | $0.26 |
 | BEDGRAPH_BEDCLIP_BEDGRAPHTOBIGWIG_FORWARD:UCSC_BEDCLIP | 6 → 1 | 36 GB → 1 GB | 8h → 15m | $0.19 |
 | BEDGRAPH_BEDCLIP_BEDGRAPHTOBIGWIG_REVERSE:UCSC_BEDCLIP | 6 → 1 | 36 GB → 1 GB | 8h → 15m | $0.17 |
+
+Time limits marked (tight) are kept although 1.5× the longest task's run time exceeds them. nf-audit never raises a request, but a task only a little longer than the longest here would hit the limit, so consider raising it: RSEM_CALCULATEEXPRESSION (longest task 10.9 h of 16h).
 
 Savings assume the same run time at the smaller allocation, which holds for memory and for CPU-bound processes that were not using the extra cores. Validate on one real run before rolling out; a process at 100% CPU efficiency will slow down if you cut its cores.

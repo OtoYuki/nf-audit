@@ -579,9 +579,10 @@ fn render_markdown(
                 .unwrap_or(&x.process);
             let time = if x.time_now_h > 0.0 {
                 format!(
-                    "{} → {}",
+                    "{} → {}{}",
                     fmt_time_h(x.time_now_h),
-                    fmt_time_h(x.time_new_h)
+                    fmt_time_h(x.time_new_h),
+                    if x.time_tight { " (tight)" } else { "" }
                 )
             } else {
                 "n/a".into()
@@ -595,6 +596,27 @@ fn render_markdown(
                 analysis::fmt_gib(x.mem_new_gib),
                 time,
                 money(x.saving)
+            ));
+        }
+        let tight: Vec<String> = recs
+            .iter()
+            .filter(|x| x.time_tight)
+            .map(|x| {
+                let short = names
+                    .get(x.process.as_str())
+                    .map(String::as_str)
+                    .unwrap_or(&x.process);
+                format!(
+                    "{short} (longest task {:.1} h of {})",
+                    x.longest_h,
+                    fmt_time_h(x.time_now_h)
+                )
+            })
+            .collect();
+        if !tight.is_empty() {
+            s.push_str(&format!(
+                "\nTime limits marked (tight) are kept although 1.5× the longest task's run time exceeds them. nf-audit never raises a request, but a task only a little longer than the longest here would hit the limit, so consider raising it: {}.\n",
+                tight.join(", ")
             ));
         }
         let kept: Vec<&str> = recs
@@ -644,6 +666,41 @@ mod tests {
         assert!(md.contains("| of which allocated but unused | n/a"));
         assert!(md.contains("| CPU-hours requested / used | n/a /"));
         assert!(!md.contains("$0.00 (0%"));
+    }
+
+    /// A process whose longest task leaves less than 1.5× headroom under its time limit is
+    /// marked in the table and named, with its numbers, under it.
+    #[test]
+    fn tight_time_limits_are_named() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata");
+        let (mut tasks, _) =
+            input::read_report_with_meta(&root.join("execution_report_synthetic.html")).unwrap();
+        let p0 = tasks[0].process.clone();
+        tasks.retain(|t| t.process == p0);
+        let (cpus, memory) = (tasks[0].cpus, tasks[0].memory);
+        for (i, t) in tasks.iter_mut().enumerate() {
+            t.status = "COMPLETED".into();
+            t.exit = Some(0);
+            t.attempt = Some(1);
+            (t.cpus, t.memory) = (cpus, memory);
+            t.pct_cpu = Some(100.0);
+            t.peak_rss = Some(1024.0 * 1024.0 * 1024.0);
+            t.time_s = Some(16.0 * 3600.0);
+            t.realtime_s = Some(if i == 0 { 10.94 } else { 0.5 } * 3600.0);
+        }
+        let r = Rates::SEQERA_COMPUTE;
+        let run = analyse(&tasks, &r);
+        let md = render_markdown(
+            &run,
+            &r,
+            &recommend(&run, &r, 1.25),
+            25,
+            None,
+            None,
+            &Default::default(),
+        );
+        assert!(md.contains("16h → 16h (tight)"), "{md}");
+        assert!(md.contains("(longest task 10.9 h of 16h)"), "{md}");
     }
 
     #[test]

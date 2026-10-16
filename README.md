@@ -237,7 +237,7 @@ Changes in v0.2.0 since the v0.1.0 binary, found by checking every published fig
 
 - Instance-aware pricing (Seqera's dominant-resource formula against an instance table; `start`/`complete` timestamps instead of `realtime`).
 - Retry attribution: cost of spot reclamation vs genuine failures.
-- Time limits that grow as well as shrink: today right-sizing never raises a request, so it keeps a time limit that tasks are running into (rnaseq `star_rsem` 3.22.1 and 3.23.0–3.25.0 failed on RSEM's 16 h limit).
+- Time limits that grow as well as shrink. Right-sizing never raises a request; it marks a kept limit `(tight)`, and comments it in the config fragment, when 1.5× the longest task exceeds it. In rnaseq 3.22.0 `star_rsem` that flags RSEM (longest task 10.9 h of 16 h), the limit 3.22.1 and 3.23.0–3.25.0 then failed on.
 - CSV output for dashboards (JSON exists: `--json`).
 
 MIT. Author: Sushant Hona.

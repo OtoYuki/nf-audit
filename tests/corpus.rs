@@ -1038,10 +1038,14 @@ fn right_sizing_leaves_escalated_processes_alone() {
     let cfg = render_config(&rec);
     let at = cfg.find(&format!(":{RSEM}'")).unwrap();
     let block = &cfg[at..at + cfg[at..].find('}').unwrap()];
+    // No `time` value: 1.5× the longest task (10.9 h) is past the 16 h limit, which is kept,
+    // and the block says the limit is tight.
     assert!(
         block.contains("cpus   = 2")
             && block.contains("memory = '12.GB'")
-            && !block.contains("time")
+            && !block.contains("time   =")
+            && block.contains("// time: longest task 10.9 h of the 16h limit; consider raising it"),
+        "{block}"
     );
 }
 
