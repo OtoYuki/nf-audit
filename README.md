@@ -36,6 +36,7 @@
 - [Cost model](#cost-model)
 - [Right-sizing](#right-sizing)
 - [Cost by task tag](#cost-by-task-tag)
+- [Sharing a run](#sharing-a-run)
 - [What the two files can't show](#what-the-two-files-cant-show)
 - [Related tools](#related-tools)
 - [Examples](#examples)
@@ -117,7 +118,7 @@ Or download the Linux x86_64 binary from [Releases](https://github.com/OtoYuki/n
 
 ## Usage
 
-Three subcommands. All read files Nextflow already wrote; none of them talk to a running pipeline or to Seqera Platform.
+Four subcommands. All read files Nextflow already wrote; none of them talk to a running pipeline or to Seqera Platform.
 
 **`inspect <trace-or-report>`** — what a file actually contains before committing to `analyze`: trace columns, or the report's embedded task count and how many tasks carry requests vs. usage metrics.
 - `--json` — inspection facts as JSON.
@@ -133,6 +134,10 @@ Three subcommands. All read files Nextflow already wrote; none of them talk to a
 **`compare <report>...`** — line up several runs (one `execution_report_*.html` each): per-run totals and a process-by-run cost-share matrix.
 - same `--rates` / `--cpu-hour` / `--gib-hour` as `analyze`
 - `--top N` — rows in the process-share matrix (default `15`)
+
+**`redact [--trace PATH] [--report PATH] --out-dir DIR`** — write copies with sample tags, paths, scripts, the run name and the command line replaced by pseudonyms (see [Sharing a run](#sharing-a-run)).
+- `--salt TEXT` — key for the pseudonyms; reuse it to redact several runs consistently (default: random, not saved)
+- `--map PATH` — also write the pseudonym → original table as JSON, to keep
 
 ## What it reads
 
@@ -174,6 +179,25 @@ The `--config-out` fragment writes whole GB and hours where the values are whole
 ## Cost by task tag
 
 `analyze` also groups cost by the task tag, the text in parentheses after the process name (`STAR_ALIGN (H1_REP2)`). nf-core pipelines usually tag with the sample ID, so this is a per-sample cost: on the rnaseq 3.22.0 `star_rsem` megatest, the eight samples carry $31.19 to $42.45 each of a $294.25 run. The tag is whatever the pipeline author chose, though; sarek tags lanes (`HCC1395T-1`), genomic intervals and reference files as well, and each shows up as its own row. The report states what share of the cost carries a tag. Untagged tasks, which Nextflow names after their index (`MULTIQC (1)`), are grouped as untagged using the report's own `tag` field. With a default trace alone there is no tag field, so such a task shows up as tag `1`. Waste is clamped at zero per tag here and per process in the process table, so the two waste columns need not sum to the same total. The same table is in `--json` under `run.tags`.
+
+## Sharing a run
+
+`redact` makes copies of a run's two files that can go to someone else. `analyze` and `compare` give the same figures on the copies as on the originals; only the names differ.
+
+```
+./nf-audit redact --trace  results/pipeline_info/execution_trace_2024-09-16_16-33-21.txt \
+                  --report results/pipeline_info/execution_report_2024-09-16_16-33-21.html \
+                  --out-dir shareable/ --map redaction-map.json
+```
+
+- **Replaced.** Each task's tag, and the tag in its name, becomes `tag-<hash>` (`STAR_ALIGN (tag-3f9a01c2d4)`). Every other free-text field of a task (`script`, `workdir`, `env`, `queue`, `container`, `native_id`, and any column nf-audit does not know) becomes `redacted-<hash>`. In the report header: the run name, the command line, the session, the script ID, the launch, work and project directories, the containers, and the full error message of a failed run. The repository and the pipeline's name, home page, DOI, description and author are kept for nf-core and nextflow-io pipelines and replaced for anything else.
+- **Kept.** Process names, since right-sizing is per process; requests, usage, run times, exit codes and attempts; the revision, profile and Nextflow, Wave and Fusion versions. The report still opens in a browser, with its plots and task table.
+- **Checked.** Before writing anything, `redact` searches the redacted header and task data for every replaced value of five characters or more, and for `s3://`, `gs://`, `az://`, `file:/`, `/home/` and `/Users/`. A hit stops it with an error, and no file is written.
+- **Pseudonyms** are a salted SHA-256 of the original, so a value maps to the same pseudonym across the trace and the report. The salt is random unless `--salt` is given; reuse one salt to redact several runs for `compare`. `--map` writes the table that turns pseudonyms back into names. It holds the originals, so keep it rather than sending it.
+
+Process names can themselves be revealing for an in-house pipeline; they stay, because without them there is nothing to right-size.
+
+On the nf-core megatest corpus (238 runs with tasks), every redacted run gives the same `analyze --json` figures as its original, apart from the tag names and the command line.
 
 ## What the two files can't show
 
