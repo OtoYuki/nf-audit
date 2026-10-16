@@ -36,6 +36,7 @@
 - [Cost model](#cost-model)
 - [Right-sizing](#right-sizing)
 - [Cost by task tag](#cost-by-task-tag)
+- [Sharing a run](#sharing-a-run)
 - [What the two files can't show](#what-the-two-files-cant-show)
 - [Related tools](#related-tools)
 - [Examples](#examples)
@@ -48,9 +49,9 @@
 A static Linux x86_64 binary, no dependencies:
 
 ```
-curl -sSLO https://github.com/OtoYuki/nf-audit/releases/download/v0.2.0/nf-audit-v0.2.0-x86_64-unknown-linux-musl.tar.gz
-tar xzf nf-audit-v0.2.0-x86_64-unknown-linux-musl.tar.gz
-cd nf-audit-v0.2.0-x86_64-unknown-linux-musl
+curl -sSLO https://github.com/OtoYuki/nf-audit/releases/download/v0.3.0/nf-audit-v0.3.0-x86_64-unknown-linux-musl.tar.gz
+tar xzf nf-audit-v0.3.0-x86_64-unknown-linux-musl.tar.gz
+cd nf-audit-v0.3.0-x86_64-unknown-linux-musl
 
 ./nf-audit inspect  results/pipeline_info/execution_report_2024-09-16_16-33-21.html
 ./nf-audit analyze  --trace  results/pipeline_info/execution_trace_2024-09-16_16-33-21.txt \
@@ -117,7 +118,7 @@ Or download the Linux x86_64 binary from [Releases](https://github.com/OtoYuki/n
 
 ## Usage
 
-Three subcommands. All read files Nextflow already wrote; none of them talk to a running pipeline or to Seqera Platform.
+Four subcommands. All read files Nextflow already wrote; none of them talk to a running pipeline or to Seqera Platform.
 
 **`inspect <trace-or-report>`** — what a file actually contains before committing to `analyze`: trace columns, or the report's embedded task count and how many tasks carry requests vs. usage metrics.
 - `--json` — inspection facts as JSON.
@@ -133,6 +134,10 @@ Three subcommands. All read files Nextflow already wrote; none of them talk to a
 **`compare <report>...`** — line up several runs (one `execution_report_*.html` each): per-run totals and a process-by-run cost-share matrix.
 - same `--rates` / `--cpu-hour` / `--gib-hour` as `analyze`
 - `--top N` — rows in the process-share matrix (default `15`)
+
+**`redact [--trace PATH] [--report PATH] --out-dir DIR`** — write copies with sample tags, paths, scripts, the run name and the command line replaced by pseudonyms (see [Sharing a run](#sharing-a-run)).
+- `--salt TEXT` — key for the pseudonyms; reuse it to redact several runs consistently (default: random, not saved)
+- `--map PATH` — also write the pseudonym → original table as JSON, to keep
 
 ## What it reads
 
@@ -174,6 +179,25 @@ The `--config-out` fragment writes whole GB and hours where the values are whole
 ## Cost by task tag
 
 `analyze` also groups cost by the task tag, the text in parentheses after the process name (`STAR_ALIGN (H1_REP2)`). nf-core pipelines usually tag with the sample ID, so this is a per-sample cost: on the rnaseq 3.22.0 `star_rsem` megatest, the eight samples carry $31.19 to $42.45 each of a $294.25 run. The tag is whatever the pipeline author chose, though; sarek tags lanes (`HCC1395T-1`), genomic intervals and reference files as well, and each shows up as its own row. The report states what share of the cost carries a tag. Untagged tasks, which Nextflow names after their index (`MULTIQC (1)`), are grouped as untagged using the report's own `tag` field. With a default trace alone there is no tag field, so such a task shows up as tag `1`. Waste is clamped at zero per tag here and per process in the process table, so the two waste columns need not sum to the same total. The same table is in `--json` under `run.tags`.
+
+## Sharing a run
+
+`redact` makes copies of a run's two files that can go to someone else. `analyze` and `compare` give the same figures on the copies as on the originals; only the names differ.
+
+```
+./nf-audit redact --trace  results/pipeline_info/execution_trace_2024-09-16_16-33-21.txt \
+                  --report results/pipeline_info/execution_report_2024-09-16_16-33-21.html \
+                  --out-dir shareable/ --map redaction-map.json
+```
+
+- **Replaced.** Each task's tag, and the tag in its name, becomes `tag-<hash>` (`STAR_ALIGN (tag-3f9a01c2d4)`). Every other free-text field of a task (`script`, `workdir`, `env`, `queue`, `container`, `native_id`, and any column nf-audit does not know) becomes `redacted-<hash>`. In the report header: the run name, the command line, the session, the script ID, the launch, work and project directories, the containers, and the full error message of a failed run. The repository and the pipeline's name, home page, DOI, description and author are kept for nf-core and nextflow-io pipelines and replaced for anything else.
+- **Kept.** Process names, since right-sizing is per process; requests, usage, run times, exit codes and attempts; the revision, profile and Nextflow, Wave and Fusion versions. The report still opens in a browser, with its plots and task table.
+- **Checked.** Before writing anything, `redact` searches the redacted header and task data for every replaced value of five characters or more, and for `s3://`, `gs://`, `az://`, `file:/`, `/home/` and `/Users/`. A hit stops it with an error, and no file is written.
+- **Pseudonyms** are a salted SHA-256 of the original, so a value maps to the same pseudonym across the trace and the report. The salt is random unless `--salt` is given; reuse one salt to redact several runs for `compare`. `--map` writes the table that turns pseudonyms back into names. It holds the originals, so keep it rather than sending it.
+
+Process names can themselves be revealing for an in-house pipeline; they stay, because without them there is nothing to right-size.
+
+On the nf-core megatest corpus (238 runs with tasks), every redacted run gives the same `analyze --json` figures as its original, apart from the tag names and the command line.
 
 ## What the two files can't show
 
@@ -229,7 +253,9 @@ CI runs all of these on every push to `main`, on every pull request, and weekly 
 
 ## Status
 
-v0.2.0, Sept 2026. Parsers are unit-tested against Nextflow's formatting and have been run against 61 rnaseq megatest runs (30 releases on `star_salmon`, 3.1 to 3.26.0; 31 on `star_rsem`, 3.1 to 3.27.0; Nextflow 21.04 to 26.04), the two unmetered 3.19.0 runs and sarek `results-dev`; on all 61 rnaseq runs the requested CPU-hours match the figure in the report header to within 0.05. Two things learned from real files that the synthetic fixtures did not show: the report's own script references `window.data_byprocess`, `window.data.summary` and `window.data.trace` before the assignment, and every task's `script` field carries JavaScript-only `\'` escapes, so the blob is not valid JSON until they are rewritten. Report-JSON conventions follow Nextflow's `ReportObserver.renderJsonData` (every `TraceRecord.FIELDS` entry as a JSON string: memory in bytes, time in milliseconds, `%cpu` as a float, `cpus` as an integer string). A report with more than `maxTasks` tasks (default 10,000) embeds `"trace": null`; nf-audit says so and points you at a trace configured with `trace.fields`.
+v0.3.0, Oct 2026. Parsers are unit-tested against Nextflow's formatting and have been run against 61 rnaseq megatest runs (30 releases on `star_salmon`, 3.1 to 3.26.0; 31 on `star_rsem`, 3.1 to 3.27.0; Nextflow 21.04 to 26.04), the two unmetered 3.19.0 runs and sarek `results-dev`; on all 61 rnaseq runs the requested CPU-hours match the figure in the report header to within 0.05. Two things learned from real files that the synthetic fixtures did not show: the report's own script references `window.data_byprocess`, `window.data.summary` and `window.data.trace` before the assignment, and every task's `script` field carries JavaScript-only `\'` escapes, so the blob is not valid JSON until they are rewritten. Report-JSON conventions follow Nextflow's `ReportObserver.renderJsonData` (every `TraceRecord.FIELDS` entry as a JSON string: memory in bytes, time in milliseconds, `%cpu` as a float, `cpus` as an integer string). A report with more than `maxTasks` tasks (default 10,000) embeds `"trace": null`; nf-audit says so and points you at a trace configured with `trace.fields`.
+
+Changes in v0.3.0: `redact` writes shareable copies of a run's files (see [Sharing a run](#sharing-a-run)), and right-sizing marks a kept time limit `(tight)` when 1.5× the longest task exceeds it. The only example that changes is rnaseq 3.22.0 `star_rsem`, where RSEM is now marked. No cost, share, efficiency or saving quoted in these docs moved.
 
 Changes in v0.2.0 since the v0.1.0 binary, found by checking every published figure against the code and data: merging a trace with its report no longer counts a task twice when the trace logs its hash twice, or matches a trace row to a retry of the same task; the config fragment no longer rounds memory or time up past the current request (it writes MB, minutes or seconds where needed); a task with only one of `%cpu` / `peak_rss` no longer reads as zero use of the other; a task with a `cpus` but no `memory` request (a process without a `memory` directive) is priced on its CPU request instead of entirely on use; trace-only input shows waste and requests as unknown instead of $0.00; cached tasks are counted and labelled; right-sizing compares against the first attempt's request; untagged tasks no longer show as tag `1` when a report is given; right-sizing leaves alone a process whose tasks used more than the first attempt's request, were retried at a larger one, or were killed (rnaseq 3.5 `PICARD_MARKDUPLICATES` peaked at 53 GiB on retries of a 36 GiB request; rnaseq 3.9 `PRESEQ_LCEXTRAP` had two tasks killed with exit 137 at 6 GB and would otherwise have been cut to 4 GB; a task stopped at its timeout with no exit code counts as killed), a process where fewer than half the tasks completed with metrics is not sized, and the config fragment writes only the values it lowers, including a lower time limit on its own; a trace written without a `hash` column is matched to its report by name and deduplicated by `task_id`; a report passed as `--trace` is rejected; short process names are widened until unique (sarek's germline and somatic `CNVKIT_BATCH` no longer share a row); `compare` places branch runs (`master`) by date with their commit; `inspect` counts a trace's tasks the way `analyze` does. None of the costs, shares, efficiencies or savings quoted in these docs moved. In `examples/`: the Totals row "billed cost" is now "cost (requested × run time)"; untagged tasks formerly shown as tag `1` joined the untagged row (so "Tagged tasks carry" reads 99.9% instead of 100.0% for 3.15.1); cached tasks are counted; `compare` rows were reordered and relabelled; and the config fragments no longer repeat unchanged values but do include time-only cuts.
 
@@ -237,7 +263,7 @@ Changes in v0.2.0 since the v0.1.0 binary, found by checking every published fig
 
 - Instance-aware pricing (Seqera's dominant-resource formula against an instance table; `start`/`complete` timestamps instead of `realtime`).
 - Retry attribution: cost of spot reclamation vs genuine failures.
-- Time limits that grow as well as shrink: today right-sizing never raises a request, so it keeps a time limit that tasks are running into (rnaseq `star_rsem` 3.22.1 and 3.23.0–3.25.0 failed on RSEM's 16 h limit).
+- Time limits that grow as well as shrink. Right-sizing never raises a request; it marks a kept limit `(tight)`, and comments it in the config fragment, when 1.5× the longest task exceeds it. In rnaseq 3.22.0 `star_rsem` that flags RSEM (longest task 10.9 h of 16 h), the limit 3.22.1 and 3.23.0–3.25.0 then failed on.
 - CSV output for dashboards (JSON exists: `--json`).
 
 MIT. Author: Sushant Hona.

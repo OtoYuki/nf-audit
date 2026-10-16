@@ -6,9 +6,10 @@
 //!
 //! Works offline, on any executor, on runs you did not execute through Seqera Platform.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
 use nf_audit::analysis::{self, analyse, fmt_time_h, recommend, Rates, RunStats};
+use nf_audit::redact::Redactor;
 use nf_audit::{compare, display_names, input};
 use std::fs;
 use std::io::Write;
@@ -74,6 +75,26 @@ enum Cmd {
         /// Rows in the process-share matrix.
         #[arg(long, default_value_t = 15)]
         top: usize,
+    },
+    /// Write copies of a trace and/or report with sample tags, paths, scripts, the run name and
+    /// the command line replaced by pseudonyms. `analyze` gives the same figures on the copies.
+    Redact {
+        /// execution_trace_*.txt to redact.
+        #[arg(long)]
+        trace: Option<PathBuf>,
+        /// execution_report_*.html to redact.
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// Directory for the redacted copies (created if missing); file names are kept.
+        #[arg(long)]
+        out_dir: PathBuf,
+        /// Secret that keys the pseudonyms. Reuse it to redact several runs consistently;
+        /// without it a random one is used and not saved.
+        #[arg(long)]
+        salt: Option<String>,
+        /// Also write the pseudonym -> original table here (JSON). Keep it: it undoes the redaction.
+        #[arg(long)]
+        map: Option<PathBuf>,
     },
     /// Print the columns found in a trace file and how many tasks it holds. Use this first.
     Inspect {
@@ -148,6 +169,13 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Inspect { path, json } => inspect(&path, json),
+        Cmd::Redact {
+            trace,
+            report,
+            out_dir,
+            salt,
+            map,
+        } => redact(trace, report, &out_dir, salt, map),
         Cmd::Compare {
             reports,
             rates,
@@ -236,6 +264,65 @@ fn run() -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn redact(
+    trace: Option<PathBuf>,
+    report: Option<PathBuf>,
+    out_dir: &std::path::Path,
+    salt: Option<String>,
+    map: Option<PathBuf>,
+) -> Result<()> {
+    if trace.is_none() && report.is_none() {
+        return Err(anyhow!("give --trace and/or --report"));
+    }
+    let random = salt.is_none();
+    let mut r = Redactor::new(&salt.unwrap_or_else(Redactor::random_salt));
+    // Everything is redacted in memory first, so a failed leak check writes nothing.
+    let mut outputs = Vec::new();
+    for (path, is_report) in [(trace, false), (report, true)] {
+        let Some(path) = path else { continue };
+        let text =
+            fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+        let red = if is_report {
+            r.report(&text)
+        } else {
+            r.trace(&text)
+        }
+        .with_context(|| format!("redacting {}", path.display()))?;
+        let name = path
+            .file_name()
+            .ok_or_else(|| anyhow!("{} has no file name", path.display()))?;
+        outputs.push((path.clone(), out_dir.join(name), red));
+    }
+    fs::create_dir_all(out_dir)?;
+    for (input, output, _) in &outputs {
+        if output.exists() && fs::canonicalize(output)? == fs::canonicalize(input)? {
+            return Err(anyhow!(
+                "--out-dir {} would overwrite the input {}; choose another directory",
+                out_dir.display(),
+                input.display()
+            ));
+        }
+    }
+    for (_, output, text) in &outputs {
+        fs::write(output, text)?;
+        eprintln!("wrote {}", output.display());
+    }
+    if let Some(m) = map {
+        fs::write(&m, serde_json::to_string_pretty(&r.mapping())?)?;
+        eprintln!("wrote {} (originals: keep it, don't send it)", m.display());
+    }
+    let (tags, values) = r.counts();
+    eprintln!(
+        "replaced {tags} task tags and {values} other values (scripts, paths, run name, command line){}",
+        if random {
+            "; the salt was random, so pass --salt to redact more runs consistently"
+        } else {
+            ""
+        }
+    );
+    Ok(())
 }
 
 fn inspect(path: &std::path::Path, as_json: bool) -> Result<()> {
@@ -579,9 +666,10 @@ fn render_markdown(
                 .unwrap_or(&x.process);
             let time = if x.time_now_h > 0.0 {
                 format!(
-                    "{} → {}",
+                    "{} → {}{}",
                     fmt_time_h(x.time_now_h),
-                    fmt_time_h(x.time_new_h)
+                    fmt_time_h(x.time_new_h),
+                    if x.time_tight { " (tight)" } else { "" }
                 )
             } else {
                 "n/a".into()
@@ -595,6 +683,27 @@ fn render_markdown(
                 analysis::fmt_gib(x.mem_new_gib),
                 time,
                 money(x.saving)
+            ));
+        }
+        let tight: Vec<String> = recs
+            .iter()
+            .filter(|x| x.time_tight)
+            .map(|x| {
+                let short = names
+                    .get(x.process.as_str())
+                    .map(String::as_str)
+                    .unwrap_or(&x.process);
+                format!(
+                    "{short} (longest task {:.1} h of {})",
+                    x.longest_h,
+                    fmt_time_h(x.time_now_h)
+                )
+            })
+            .collect();
+        if !tight.is_empty() {
+            s.push_str(&format!(
+                "\nTime limits marked (tight) are kept although 1.5× the longest task's run time exceeds them. nf-audit never raises a request, but a task only a little longer than the longest here would hit the limit, so consider raising it: {}.\n",
+                tight.join(", ")
             ));
         }
         let kept: Vec<&str> = recs
@@ -644,6 +753,41 @@ mod tests {
         assert!(md.contains("| of which allocated but unused | n/a"));
         assert!(md.contains("| CPU-hours requested / used | n/a /"));
         assert!(!md.contains("$0.00 (0%"));
+    }
+
+    /// A process whose longest task leaves less than 1.5× headroom under its time limit is
+    /// marked in the table and named, with its numbers, under it.
+    #[test]
+    fn tight_time_limits_are_named() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata");
+        let (mut tasks, _) =
+            input::read_report_with_meta(&root.join("execution_report_synthetic.html")).unwrap();
+        let p0 = tasks[0].process.clone();
+        tasks.retain(|t| t.process == p0);
+        let (cpus, memory) = (tasks[0].cpus, tasks[0].memory);
+        for (i, t) in tasks.iter_mut().enumerate() {
+            t.status = "COMPLETED".into();
+            t.exit = Some(0);
+            t.attempt = Some(1);
+            (t.cpus, t.memory) = (cpus, memory);
+            t.pct_cpu = Some(100.0);
+            t.peak_rss = Some(1024.0 * 1024.0 * 1024.0);
+            t.time_s = Some(16.0 * 3600.0);
+            t.realtime_s = Some(if i == 0 { 10.94 } else { 0.5 } * 3600.0);
+        }
+        let r = Rates::SEQERA_COMPUTE;
+        let run = analyse(&tasks, &r);
+        let md = render_markdown(
+            &run,
+            &r,
+            &recommend(&run, &r, 1.25),
+            25,
+            None,
+            None,
+            &Default::default(),
+        );
+        assert!(md.contains("16h → 16h (tight)"), "{md}");
+        assert!(md.contains("(longest task 10.9 h of 16h)"), "{md}");
     }
 
     #[test]

@@ -409,6 +409,14 @@ pub struct Recommendation {
     /// those tasks fail, so it is left alone. The process relies on the pipeline's retry
     /// escalation, so no change is recommended and nothing is written to the config fragment.
     pub needs_escalation: bool,
+    /// The longest task's run time, in hours.
+    #[serde(default)]
+    pub longest_h: f64,
+    /// Set when the time rule (1.5× the longest task) wants more than the current limit, so the
+    /// limit is kept although a task only a little longer than the longest would hit it. This
+    /// tool never raises a request; it says so instead.
+    #[serde(default)]
+    pub time_tight: bool,
 }
 
 /// Recommend per-process requests: observed peak times a safety margin, rounded to sane units,
@@ -439,8 +447,9 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
             .min(cpus_now.ceil() as u32);
         let mem_new = round_mem_gib(p.max_rss_gib * margin).max(1.0).min(mem_now);
         let time_now = base(p.base_time_limit_h, p.max_time_limit_h);
+        let time_wanted = p.max_realtime_h * margin.max(1.5);
         let time_new = if time_now > 0.0 {
-            round_time_h(p.max_realtime_h * margin.max(1.5)).min(time_now)
+            round_time_h(time_wanted).min(time_now)
         } else {
             0.0
         };
@@ -466,6 +475,8 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
                 time_new_h: time_now,
                 saving: 0.0,
                 needs_escalation,
+                longest_h: p.max_realtime_h,
+                time_tight: false,
             });
             continue;
         }
@@ -483,6 +494,8 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
             time_new_h: time_new,
             saving,
             needs_escalation,
+            longest_h: p.max_realtime_h,
+            time_tight: time_now > 0.0 && time_wanted > time_now,
         });
     }
     out.sort_by(|a, b| {
@@ -551,6 +564,13 @@ pub fn render_config(recs: &[Recommendation]) -> String {
         }
         if x.time_new_h > 0.0 && x.time_new_h < x.time_now_h {
             lines.push(format!("        time   = '{}'", nf_duration(x.time_new_h)));
+        }
+        if x.time_tight {
+            lines.push(format!(
+                "        // time: longest task {:.1} h of the {} limit; consider raising it",
+                x.longest_h,
+                fmt_time_h(x.time_now_h)
+            ));
         }
         if lines.is_empty() {
             continue;
@@ -642,6 +662,8 @@ mod tests {
             time_new_h: time_new,
             saving: 1.0,
             needs_escalation: false,
+            longest_h: 0.0,
+            time_tight: false,
         }
     }
 
@@ -881,6 +903,70 @@ mod tests {
         );
         assert_eq!(r.saving, 0.0);
         assert!(!render_config(&rec).contains(&format!("'{p0}'")));
+    }
+
+    /// rnaseq 3.22.0 `star_rsem`: RSEM's longest task ran 10.9 h of a 16 h limit. 1.5× that is
+    /// past the limit, so the limit stays, and the recommendation says it is tight.
+    fn one_process_with_longest(longest_h: f64, limit_h: f64) -> Vec<Task> {
+        let mut tasks = fixtures();
+        let p0 = tasks[0].process.clone();
+        tasks.retain(|t| t.process == p0);
+        let (cpus, memory) = (tasks[0].cpus, tasks[0].memory);
+        for (i, t) in tasks.iter_mut().enumerate() {
+            // One clean attempt each at one request, so nothing reads as escalation.
+            t.status = "COMPLETED".into();
+            t.exit = Some(0);
+            t.attempt = Some(1);
+            (t.cpus, t.memory) = (cpus, memory);
+            t.peak_rss = Some(1.0 * GIB);
+            t.time_s = Some(limit_h * 3600.0);
+            t.realtime_s = Some(if i == 0 { longest_h } else { 0.5 } * 3600.0);
+        }
+        tasks
+    }
+
+    #[test]
+    fn a_time_limit_close_to_the_longest_task_is_flagged() {
+        let run = analyse(
+            &one_process_with_longest(10.94, 16.0),
+            &Rates::SEQERA_COMPUTE,
+        );
+        let r = &recommend(&run, &Rates::SEQERA_COMPUTE, 1.25)[0];
+        assert!(!r.needs_escalation);
+        assert!(r.time_tight, "{r:?}");
+        assert_eq!((r.time_now_h, r.time_new_h), (16.0, 16.0));
+        assert!((r.longest_h - 10.94).abs() < 1e-9);
+        let cfg = render_config(std::slice::from_ref(r));
+        assert!(
+            cfg.contains("// time: longest task 10.9 h of the 16h limit; consider raising it"),
+            "{cfg}"
+        );
+        // A comment is not a value: no `time =` line for a limit that was not lowered.
+        assert!(!cfg.contains("time   ="), "{cfg}");
+    }
+
+    #[test]
+    fn a_time_limit_with_headroom_is_not_flagged() {
+        let run = analyse(
+            &one_process_with_longest(10.0, 16.0),
+            &Rates::SEQERA_COMPUTE,
+        );
+        let r = &recommend(&run, &Rates::SEQERA_COMPUTE, 1.25)[0];
+        assert!(!r.time_tight, "{r:?}");
+        assert!(r.time_new_h < 16.0);
+        assert!(!render_config(std::slice::from_ref(r)).contains("consider raising"));
+    }
+
+    /// A task that ran past the limit is an escalation case, reported as such, not as tight.
+    #[test]
+    fn a_limit_already_exceeded_is_escalation_not_tight() {
+        let run = analyse(
+            &one_process_with_longest(17.0, 16.0),
+            &Rates::SEQERA_COMPUTE,
+        );
+        let r = &recommend(&run, &Rates::SEQERA_COMPUTE, 1.25)[0];
+        assert!(r.needs_escalation);
+        assert!(!r.time_tight);
     }
 
     /// A report task with `cpus` but no `memory` (a process without a `memory` directive): the

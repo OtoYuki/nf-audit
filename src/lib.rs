@@ -8,6 +8,7 @@ pub mod analysis;
 pub mod compare;
 pub mod input;
 pub mod model;
+pub mod redact;
 
 /// The last `k` `:`-separated components of a process name (`A:B:C`, 2 -> `B:C`).
 pub fn name_suffix(process: &str, k: usize) -> String {

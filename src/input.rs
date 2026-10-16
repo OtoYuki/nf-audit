@@ -242,6 +242,12 @@ fn strip_tags(s: &str) -> String {
 
 /// Find the `window.data = {...};` assignment and return the balanced JSON object text.
 fn extract_window_data(html: &str) -> Result<String> {
+    let (from, to) = window_data_span(html)?;
+    Ok(html[from..to].to_string())
+}
+
+/// Byte range of the object literal assigned to `window.data`, braces included.
+pub(crate) fn window_data_span(html: &str) -> Result<(usize, usize)> {
     let start = find_window_data_assignment(html).ok_or_else(|| {
         anyhow!("no `window.data = {{...}}` found in report (is this a Nextflow execution report?)")
     })?;
@@ -270,7 +276,7 @@ fn extract_window_data(html: &str) -> Result<String> {
             b'}' => {
                 depth -= 1;
                 if depth == 0 {
-                    return Ok(rest[brace..=i].to_string());
+                    return Ok((start + brace, start + i + 1));
                 }
             }
             _ => {}
@@ -301,7 +307,7 @@ fn find_window_data_assignment(html: &str) -> Option<usize> {
 /// Nextflow writes the blob with a JavaScript string escaper, which emits `\'` (not valid
 /// JSON) alongside `\/`, `\n`, `\"` and `\\` (all valid). Turn `\'` back into `'`, leaving
 /// every other escape pair, including `\\`, untouched.
-fn js_escapes_to_json(s: &str) -> String {
+pub(crate) fn js_escapes_to_json(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
