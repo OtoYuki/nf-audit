@@ -1,7 +1,7 @@
 //! Per-process aggregation, cost model and right-sizing recommendations.
 
 use crate::model::Task;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 
@@ -106,6 +106,65 @@ pub struct ProcessStats {
     pub cost: f64,
     pub failed_cost: f64,
     pub has_requests: bool,
+    /// Tasks by request group, smallest memory first. A pipeline can set a request per task (from
+    /// the input size, say), so one process can hold tasks that asked for 16 GB and 96 GB.
+    #[serde(default)]
+    pub groups: Vec<RequestGroup>,
+    /// Tasks that belong to no group: no first-attempt request of their own, and a name that does
+    /// not single out one first attempt (untagged tasks share their name).
+    #[serde(default)]
+    pub ungrouped: GroupUsage,
+}
+
+/// The tasks whose first attempt made the same request, with their retries.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RequestGroup {
+    pub cpus: f64,
+    pub memory_gib: f64,
+    /// 0 when the tasks carry no time limit.
+    pub time_limit_h: f64,
+    pub usage: GroupUsage,
+}
+
+/// What a set of tasks used, and how far their retries escalated.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GroupUsage {
+    pub tasks: usize,
+    pub retried_tasks: usize,
+    pub killed_tasks: usize,
+    pub tasks_with_rss: usize,
+    pub max_rss_gib: f64,
+    pub max_realtime_h: f64,
+    pub realtime_h: f64,
+    /// Largest request among retries (attempt > 1).
+    pub retry_cpus_requested: f64,
+    pub retry_mem_requested_gib: f64,
+    pub retry_time_limit_h: f64,
+}
+
+impl GroupUsage {
+    /// Whether these tasks used, or retried at, more than the given request, or were killed: the
+    /// same test [`recommend`] applies to a whole process.
+    fn needs_more_than(&self, cpus: f64, mem_gib: f64, time_h: f64) -> bool {
+        (self.tasks_with_rss > 0 && self.max_rss_gib > mem_gib)
+            || (time_h > 0.0 && self.max_realtime_h > time_h)
+            || self.retry_mem_requested_gib > mem_gib
+            || self.retry_cpus_requested > cpus
+            || (time_h > 0.0 && self.retry_time_limit_h > time_h)
+            || self.killed_tasks > 0
+    }
+}
+
+/// A task's request group: its own request on a first attempt with both `cpus` and `memory`.
+/// Bit patterns keep the key exact and orderable.
+type GroupKey = (u64, u64, u64);
+
+fn first_attempt_key(t: &Task) -> Option<GroupKey> {
+    if t.attempt.unwrap_or(1) != 1 {
+        return None;
+    }
+    let (c, m) = (t.cpus?, t.memory?);
+    Some((c.to_bits(), m.to_bits(), t.time_s.unwrap_or(0.0).to_bits()))
 }
 
 impl ProcessStats {
@@ -206,6 +265,19 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         tasks: tasks.len(),
         ..Default::default()
     };
+    // A retry runs at an escalated request, so it joins the group of the first attempt with the
+    // same task name; Nextflow keeps the name across attempts.
+    let mut first_keys: HashMap<(&str, &str), BTreeSet<GroupKey>> = HashMap::new();
+    for t in tasks {
+        if let Some(k) = first_attempt_key(t) {
+            first_keys
+                .entry((t.process.as_str(), t.name.as_str()))
+                .or_default()
+                .insert(k);
+        }
+    }
+    let mut groups: BTreeMap<&str, BTreeMap<GroupKey, GroupUsage>> = BTreeMap::new();
+    let mut ungrouped: BTreeMap<&str, GroupUsage> = BTreeMap::new();
 
     for t in tasks {
         let hours = t.realtime_s.unwrap_or(0.0) / 3600.0;
@@ -245,7 +317,8 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         let signal = t.exit.is_some_and(|e| (130..=145).contains(&e) || e == 104);
         let timed_out = t.exit.is_none()
             && matches!((t.realtime_s, t.time_s), (Some(r), Some(l)) if l > 0.0 && r >= 0.9 * l);
-        if t.status == "FAILED" && (signal || timed_out) {
+        let killed = t.status == "FAILED" && (signal || timed_out);
+        if killed {
             p.killed_tasks += 1;
         }
         if t.succeeded() && t.pct_cpu.is_some() && t.peak_rss.is_some() {
@@ -307,6 +380,41 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
         }
         if let Some(m) = mem_req_gib {
             p.gib_h_requested += m * hours;
+        }
+
+        let key = first_attempt_key(t).or_else(|| {
+            match first_keys.get(&(t.process.as_str(), t.name.as_str())) {
+                Some(keys) if keys.len() == 1 => keys.first().copied(),
+                _ => None,
+            }
+        });
+        let u = match key {
+            Some(k) => groups
+                .entry(t.process.as_str())
+                .or_default()
+                .entry(k)
+                .or_default(),
+            None => ungrouped.entry(t.process.as_str()).or_default(),
+        };
+        u.tasks += 1;
+        u.realtime_h += hours;
+        u.max_realtime_h = u.max_realtime_h.max(hours);
+        if killed {
+            u.killed_tasks += 1;
+        }
+        if t.peak_rss.is_some() {
+            u.tasks_with_rss += 1;
+            u.max_rss_gib = u.max_rss_gib.max(rss_gib);
+        }
+        if t.attempt.unwrap_or(1) > 1 {
+            u.retried_tasks += 1;
+            if let (Some(c), Some(m)) = (cpus_req, mem_req_gib) {
+                u.retry_cpus_requested = u.retry_cpus_requested.max(c);
+                u.retry_mem_requested_gib = u.retry_mem_requested_gib.max(m);
+            }
+            if let Some(tl) = t.time_s {
+                u.retry_time_limit_h = u.retry_time_limit_h.max(tl / 3600.0);
+            }
         }
         let cpu_part = cpus_req.map_or(cpu_h_used, |c| c * hours);
         let mem_part = mem_req_gib.map_or(gib_h_used, |m| m * hours);
@@ -370,6 +478,31 @@ pub fn analyse(tasks: &[Task], rates: &Rates) -> RunStats {
     });
     run.tags = tags;
 
+    for (process, keyed) in groups {
+        let p = by_proc
+            .get_mut(process)
+            .expect("every grouped task's process is counted");
+        p.groups = keyed
+            .into_iter()
+            .map(|((c, m, tl), usage)| RequestGroup {
+                cpus: f64::from_bits(c),
+                memory_gib: f64::from_bits(m) / GIB,
+                time_limit_h: f64::from_bits(tl) / 3600.0,
+                usage,
+            })
+            .collect();
+        p.groups.sort_by(|a, b| {
+            (a.memory_gib, a.cpus, a.time_limit_h)
+                .partial_cmp(&(b.memory_gib, b.cpus, b.time_limit_h))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+    for (process, usage) in ungrouped {
+        if let Some(p) = by_proc.get_mut(process) {
+            p.ungrouped = usage;
+        }
+    }
+
     let mut procs: Vec<ProcessStats> = by_proc.into_values().collect();
     procs.sort_by(|a, b| {
         b.cost
@@ -417,6 +550,37 @@ pub struct Recommendation {
     /// tool never raises a request; it says so instead.
     #[serde(default)]
     pub time_tight: bool,
+    /// Requests (`cpus`, `memory`, `time`) that differ between the process's first attempts:
+    /// the pipeline sets them per task. A value in the fragment would apply to every task and
+    /// raise the smaller requests, so these are kept and not written.
+    #[serde(default)]
+    pub varied: Vec<String>,
+    /// One entry per request group when the process has more than one, each sized against its
+    /// own request.
+    #[serde(default)]
+    pub groups: Vec<GroupRecommendation>,
+}
+
+/// Memory for one request group, sized against that group's own request.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GroupRecommendation {
+    pub cpus: f64,
+    pub memory_gib: f64,
+    pub time_limit_h: f64,
+    pub tasks: usize,
+    pub retried_tasks: usize,
+    /// Largest memory a retry in this group ran at; 0 without retries.
+    pub retry_mem_requested_gib: f64,
+    pub killed_tasks: usize,
+    /// Largest `peak_rss` in the group, retries included; `None` when no task recorded one.
+    pub peak_rss_gib: Option<f64>,
+    /// The group's peak × margin, rounded as for a process; the request itself when the group
+    /// needs its escalation or has no peak.
+    pub mem_new_gib: f64,
+    pub needs_escalation: bool,
+    /// The group's run time re-priced at `mem_new_gib`. Not part of the process's saving: the
+    /// fragment cannot write a value per group.
+    pub saving: f64,
 }
 
 /// Recommend per-process requests: observed peak times a safety margin, rounded to sane units,
@@ -441,29 +605,110 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
         let base = |b: f64, max: f64| if b > 0.0 { b } else { max };
         let cpus_now = base(p.base_cpus_requested, p.max_cpus_requested);
         let mem_now = base(p.base_mem_requested_gib, p.max_mem_requested_gib);
-        // Both metrics were observed here: the completion check above requires them.
-        let cpus_new = ((p.max_cpu_used_cores * margin).ceil() as u32)
-            .max(1)
-            .min(cpus_now.ceil() as u32);
-        let mem_new = round_mem_gib(p.max_rss_gib * margin).max(1.0).min(mem_now);
         let time_now = base(p.base_time_limit_h, p.max_time_limit_h);
-        let time_wanted = p.max_realtime_h * margin.max(1.5);
-        let time_new = if time_now > 0.0 {
-            round_time_h(time_wanted).min(time_now)
+        // A request the pipeline sets per task is kept: one value would raise the smaller ones.
+        let grouped = p.groups.len() > 1;
+        let varies = |f: fn(&RequestGroup) -> f64| {
+            grouped && p.groups.iter().any(|g| f(g) != f(&p.groups[0]))
+        };
+        let (cpus_vary, mem_vary, time_vary) = (
+            varies(|g| g.cpus),
+            varies(|g| g.memory_gib),
+            varies(|g| g.time_limit_h),
+        );
+        let varied: Vec<String> = [
+            ("cpus", cpus_vary),
+            ("memory", mem_vary),
+            ("time", time_vary),
+        ]
+        .into_iter()
+        .filter(|&(_, v)| v)
+        .map(|(name, _)| name.to_string())
+        .collect();
+        // Both metrics were observed here: the completion check above requires them.
+        let cpus_new = if cpus_vary {
+            cpus_now.ceil() as u32
         } else {
+            ((p.max_cpu_used_cores * margin).ceil() as u32)
+                .max(1)
+                .min(cpus_now.ceil() as u32)
+        };
+        let mem_new = if mem_vary {
+            mem_now
+        } else {
+            round_mem_gib(p.max_rss_gib * margin).max(1.0).min(mem_now)
+        };
+        let time_wanted = p.max_realtime_h * margin.max(1.5);
+        let time_new = if time_now <= 0.0 {
             0.0
+        } else if time_vary {
+            time_now
+        } else {
+            round_time_h(time_wanted).min(time_now)
         };
         // A fixed value replaces the pipeline's retry escalation, so a process whose tasks used
         // more than the first attempt's request (peak memory or run time) is left alone: writing the
         // first-attempt value back would make those tasks fail on every attempt.
         // A retry at a larger request shows the escalation in use even when the failed first
         // attempt recorded no metrics (a task killed for memory often records none).
-        let needs_escalation = (p.tasks_with_rss > 0 && p.max_rss_gib > mem_now)
-            || (time_now > 0.0 && p.max_realtime_h > time_now)
-            || p.retry_mem_requested_gib > mem_now
-            || p.retry_cpus_requested > cpus_now
-            || (time_now > 0.0 && p.retry_time_limit_h > time_now)
-            || p.killed_tasks > 0;
+        let needs_escalation = if grouped {
+            // Each group against its own request (a 16 GB task retried at 32 GB needs its
+            // escalation though another group asks for 96 GB); a task tied to no group against
+            // the smallest request, which is the cautious reading.
+            let least = |f: fn(&RequestGroup) -> f64| {
+                p.groups
+                    .iter()
+                    .map(f)
+                    .filter(|&x| x > 0.0)
+                    .fold(f64::INFINITY, f64::min)
+            };
+            p.groups.iter().any(|g| {
+                g.usage
+                    .needs_more_than(g.cpus, g.memory_gib, g.time_limit_h)
+            }) || p.ungrouped.needs_more_than(
+                least(|g| g.cpus),
+                least(|g| g.memory_gib),
+                least(|g| g.time_limit_h),
+            ) || p.killed_tasks > 0
+        } else {
+            (p.tasks_with_rss > 0 && p.max_rss_gib > mem_now)
+                || (time_now > 0.0 && p.max_realtime_h > time_now)
+                || p.retry_mem_requested_gib > mem_now
+                || p.retry_cpus_requested > cpus_now
+                || (time_now > 0.0 && p.retry_time_limit_h > time_now)
+                || p.killed_tasks > 0
+        };
+        let groups: Vec<GroupRecommendation> = if grouped {
+            p.groups
+                .iter()
+                .map(|g| {
+                    let u = &g.usage;
+                    let escalates = u.needs_more_than(g.cpus, g.memory_gib, g.time_limit_h);
+                    let mem_new_gib = if escalates || u.tasks_with_rss == 0 {
+                        g.memory_gib
+                    } else {
+                        round_mem_gib(u.max_rss_gib * margin)
+                            .max(1.0)
+                            .min(g.memory_gib)
+                    };
+                    GroupRecommendation {
+                        cpus: g.cpus,
+                        memory_gib: g.memory_gib,
+                        time_limit_h: g.time_limit_h,
+                        tasks: u.tasks,
+                        retried_tasks: u.retried_tasks,
+                        retry_mem_requested_gib: u.retry_mem_requested_gib,
+                        killed_tasks: u.killed_tasks,
+                        peak_rss_gib: (u.tasks_with_rss > 0).then_some(u.max_rss_gib),
+                        mem_new_gib,
+                        needs_escalation: escalates,
+                        saving: (g.memory_gib - mem_new_gib) * u.realtime_h * rates.gib_hour,
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         if needs_escalation {
             out.push(Recommendation {
                 process: p.process.clone(),
@@ -477,13 +722,27 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
                 needs_escalation,
                 longest_h: p.max_realtime_h,
                 time_tight: false,
+                varied,
+                groups,
             });
             continue;
         }
         // Saving is estimated by re-pricing the same runtime at the new allocation.
-        let new_cost = (cpus_new as f64) * p.realtime_h * rates.cpu_hour
-            + mem_new * p.realtime_h * rates.gib_hour;
-        let saving = (p.cost - new_cost).max(0.0);
+        let saving = if grouped {
+            // Each group at its own request; tasks tied to no group are left out.
+            p.groups
+                .iter()
+                .map(|g| {
+                    let h = g.usage.realtime_h;
+                    (g.cpus - f64::from(cpus_new)).max(0.0) * h * rates.cpu_hour
+                        + (g.memory_gib - mem_new).max(0.0) * h * rates.gib_hour
+                })
+                .sum()
+        } else {
+            let new_cost = (cpus_new as f64) * p.realtime_h * rates.cpu_hour
+                + mem_new * p.realtime_h * rates.gib_hour;
+            (p.cost - new_cost).max(0.0)
+        };
         out.push(Recommendation {
             process: p.process.clone(),
             cpus_now,
@@ -495,7 +754,9 @@ pub fn recommend(run: &RunStats, rates: &Rates, margin: f64) -> Vec<Recommendati
             saving,
             needs_escalation,
             longest_h: p.max_realtime_h,
-            time_tight: time_now > 0.0 && time_wanted > time_now,
+            time_tight: !time_vary && time_now > 0.0 && time_wanted > time_now,
+            varied,
+            groups,
         });
     }
     out.sort_by(|a, b| {
@@ -664,6 +925,8 @@ mod tests {
             needs_escalation: false,
             longest_h: 0.0,
             time_tight: false,
+            varied: Vec::new(),
+            groups: Vec::new(),
         }
     }
 
@@ -1047,6 +1310,131 @@ mod tests {
         let r = rec.iter().find(|r| r.process == p0).unwrap();
         assert!(r.needs_escalation);
         assert!(!render_config(&rec).contains(&format!("'{p0}'")));
+    }
+
+    /// One process whose pipeline sets memory per task: two first attempts at 96 GB that peak at
+    /// 60 GB, and two at 16 GB that peak at 10 GB. 12 CPUs with about one core used, a 16 h limit,
+    /// 1 h each.
+    fn two_groups() -> Vec<Task> {
+        (0..4)
+            .map(|i| {
+                let big = i < 2;
+                Task {
+                    hash: format!("g{i}/1"),
+                    name: format!("P:SPLIT (s{i})"),
+                    process: "P:SPLIT".into(),
+                    tag: Some(format!("s{i}")),
+                    status: "COMPLETED".into(),
+                    exit: Some(0),
+                    attempt: Some(1),
+                    realtime_s: Some(3600.0),
+                    pct_cpu: Some(100.0),
+                    peak_rss: Some(if big { 60.0 } else { 10.0 } * GIB),
+                    cpus: Some(12.0),
+                    memory: Some(if big { 96.0 } else { 16.0 } * GIB),
+                    time_s: Some(16.0 * 3600.0),
+                    ..Default::default()
+                }
+            })
+            .collect()
+    }
+
+    fn sized(tasks: &[Task]) -> Recommendation {
+        let r = Rates::SEQERA_COMPUTE;
+        let mut recs = recommend(&analyse(tasks, &r), &r, 1.25);
+        assert_eq!(recs.len(), 1);
+        recs.remove(0)
+    }
+
+    /// A value in the fragment applies to every task, so where the pipeline sets memory per task
+    /// one value would raise the smaller requests (16 GB to 76 GB here). Memory is left out; the
+    /// CPUs, the same on every task, are still lowered, and the saving prices only that.
+    #[test]
+    fn a_request_that_varies_by_task_is_not_written() {
+        let rec = sized(&two_groups());
+        assert!(!rec.needs_escalation);
+        assert_eq!(rec.mem_new_gib, rec.mem_now_gib);
+        let cfg = render_config(std::slice::from_ref(&rec));
+        assert!(!cfg.contains("memory = '"), "{cfg}");
+        assert!(cfg.contains("cpus   = 2"), "{cfg}");
+        // (12 - 2) CPUs × 4 task-hours × $0.10.
+        assert!((rec.saving - 4.0).abs() < 1e-9, "{}", rec.saving);
+    }
+
+    /// Each group gets its own peak, retries and suggestion. A process with one request has one
+    /// group, nothing varied and no per-group rows: it is sized as before.
+    #[test]
+    fn each_group_is_sized_against_its_own_request() {
+        let rec = sized(&two_groups());
+        assert_eq!(rec.varied, ["memory"]);
+        let g: Vec<(f64, Option<f64>, f64)> = rec
+            .groups
+            .iter()
+            .map(|g| (g.memory_gib, g.peak_rss_gib, g.mem_new_gib))
+            .collect();
+        // 10 × 1.25 = 12.5 -> 14 GB; 60 × 1.25 = 75 -> 80 GB (above 64 GB, in 8 GB steps).
+        assert_eq!(g, [(16.0, Some(10.0), 14.0), (96.0, Some(60.0), 80.0)]);
+        // (16 - 14) GB × 2 h × $0.025 and (96 - 80) GB × 2 h × $0.025.
+        assert!((rec.groups[0].saving - 0.1).abs() < 1e-9);
+        assert!((rec.groups[1].saving - 0.8).abs() < 1e-9);
+
+        let r = Rates::SEQERA_COMPUTE;
+        let run = analyse(&fixtures(), &r);
+        assert!(run
+            .processes
+            .iter()
+            .filter(|p| p.has_requests)
+            .all(|p| p.groups.len() == 1 && p.ungrouped.tasks == 0));
+        assert!(recommend(&run, &r, 1.25)
+            .iter()
+            .all(|x| x.varied.is_empty() && x.groups.is_empty()));
+    }
+
+    /// Each task is checked against its own group's request. A 16 GB task retried at 32 GB, or
+    /// peaking above 16 GB, needs the escalation although both stay under the 96 GB group's
+    /// request; so does a retry that cannot be tied to one group, against the smallest request.
+    #[test]
+    fn escalation_is_judged_against_the_tasks_own_group() {
+        let retried = |name: &str| {
+            let mut tasks = two_groups();
+            tasks[3].status = "FAILED".into();
+            tasks[3].exit = Some(1);
+            (tasks[3].pct_cpu, tasks[3].peak_rss) = (None, None);
+            let mut retry = tasks[3].clone();
+            retry.hash = "g3/2".into();
+            retry.name = name.into();
+            retry.attempt = Some(2);
+            retry.status = "COMPLETED".into();
+            retry.exit = Some(0);
+            retry.memory = Some(32.0 * GIB);
+            retry.pct_cpu = Some(100.0);
+            retry.peak_rss = Some(12.0 * GIB);
+            tasks.push(retry);
+            tasks
+        };
+        let rec = sized(&retried("P:SPLIT (s3)"));
+        assert!(rec.needs_escalation);
+        let g = &rec.groups;
+        assert_eq!(
+            (
+                g[0].retried_tasks,
+                g[0].retry_mem_requested_gib,
+                g[0].mem_new_gib
+            ),
+            (1, 32.0, 16.0)
+        );
+        assert_eq!(
+            (g[0].needs_escalation, g[1].needs_escalation),
+            (true, false)
+        );
+        assert!(sized(&retried("P:SPLIT (unmatched)")).needs_escalation);
+        let mut over = two_groups();
+        over[2].peak_rss = Some(20.0 * GIB);
+        assert!(sized(&over).needs_escalation);
+        // The same retry at the task's own request is not escalation.
+        let mut same = retried("P:SPLIT (s3)");
+        same[4].memory = Some(16.0 * GIB);
+        assert!(!sized(&same).needs_escalation);
     }
 
     /// A process where most tasks never completed (a run stopped early) is not sized from the

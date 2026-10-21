@@ -29,11 +29,25 @@ process ESCALATES {
     """
 }
 
+process GROUPED {
+    tag "$id"
+    cpus 4
+    memory { id == 's3' ? 2.GB : 1.GB }
+    time '1h'
+    input: val id
+    output: val id
+    script:
+    """
+    end=\$((SECONDS+3)); while [ \$SECONDS -lt \$end ]; do :; done
+    """
+}
+
 workflow SUB {
     take: ids
     main:
     BUSY(ids)
     ESCALATES(BUSY.out)
+    GROUPED(ESCALATES.out)
 }
 
 workflow NFCORE_DEMO {

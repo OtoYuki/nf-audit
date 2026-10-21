@@ -664,7 +664,10 @@ fn render_markdown(
                 .get(x.process.as_str())
                 .map(String::as_str)
                 .unwrap_or(&x.process);
-            let time = if x.time_now_h > 0.0 {
+            let varies = |r: &str| x.varied.iter().any(|v| v == r);
+            let time = if varies("time") {
+                "varies".into()
+            } else if x.time_now_h > 0.0 {
                 format!(
                     "{} → {}{}",
                     fmt_time_h(x.time_now_h),
@@ -674,13 +677,25 @@ fn render_markdown(
             } else {
                 "n/a".into()
             };
+            let cpus = if varies("cpus") {
+                "varies".into()
+            } else {
+                format!("{:.0} → {}", x.cpus_now, x.cpus_new)
+            };
+            let memory = if varies("memory") {
+                "varies".into()
+            } else {
+                format!(
+                    "{} → {}",
+                    analysis::fmt_gib(x.mem_now_gib),
+                    analysis::fmt_gib(x.mem_new_gib)
+                )
+            };
             s.push_str(&format!(
-                "| {} | {:.0} → {} | {} → {} | {} | {} |\n",
+                "| {} | {} | {} | {} | {} |\n",
                 short,
-                x.cpus_now,
-                x.cpus_new,
-                analysis::fmt_gib(x.mem_now_gib),
-                analysis::fmt_gib(x.mem_new_gib),
+                cpus,
+                memory,
                 time,
                 money(x.saving)
             ));
@@ -706,6 +721,24 @@ fn render_markdown(
                 tight.join(", ")
             ));
         }
+        let grouped: Vec<&analysis::Recommendation> =
+            recs.iter().filter(|x| !x.groups.is_empty()).collect();
+        let short = |x: &analysis::Recommendation| {
+            names
+                .get(x.process.as_str())
+                .cloned()
+                .unwrap_or_else(|| x.process.clone())
+        };
+        if !grouped.is_empty() {
+            let list: Vec<String> = grouped
+                .iter()
+                .map(|x| format!("{} ({})", short(x), x.varied.join(", ")))
+                .collect();
+            s.push_str(&format!(
+                "\nSome processes ask for different amounts on different tasks: the pipeline sets the request per task (from the input size, for example). A value in the config fragment would apply to every task and raise the smaller requests, so nf-audit writes none for what varies (shown as \"varies\" above); size it per group in the pipeline's own setting instead (see Memory by request group below): {}.\n",
+                list.join(", ")
+            ));
+        }
         let kept: Vec<&str> = recs
             .iter()
             .filter(|x| x.needs_escalation)
@@ -724,6 +757,52 @@ fn render_markdown(
         }
         s.push_str(&not_sized_note);
         s.push_str("\nSavings assume the same run time at the smaller allocation. That holds for memory and for processes that were not using their extra cores, but the CPU figure is each task's average over its run time: a task that is single-threaded for most of its life and briefly parallel shows as about one core, and its parallel part runs slower on fewer cores. The trace cannot show that. Validate on one real run before rolling out.\n");
+        if !grouped.is_empty() {
+            s.push_str("\n### Memory by request group\n\nA group is the tasks whose first attempt asked for the same CPUs, memory and time, together with their retries. Each group's peak memory is compared with its own request. These suggestions are not in the config fragment, and their savings are not in the total above. A group marked \"keep (escalates)\" used more than its own request, was retried at a larger one, or had a task killed.\n\n");
+            s.push_str("| process | cpus | memory | time | tasks | retried | killed | peak RSS | of request | suggested | est. saving |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");
+            for x in grouped.iter().take(top) {
+                for g in &x.groups {
+                    let retried = if g.retried_tasks > 0 && g.retry_mem_requested_gib > 0.0 {
+                        format!(
+                            "{} (up to {})",
+                            g.retried_tasks,
+                            analysis::fmt_gib(g.retry_mem_requested_gib)
+                        )
+                    } else {
+                        g.retried_tasks.to_string()
+                    };
+                    let suggested = if g.needs_escalation {
+                        "keep (escalates)".to_string()
+                    } else {
+                        analysis::fmt_gib(g.mem_new_gib)
+                    };
+                    let share = g
+                        .peak_rss_gib
+                        .filter(|_| g.memory_gib > 0.0)
+                        .map(|p| p / g.memory_gib);
+                    s.push_str(&format!(
+                        "| {} | {:.0} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
+                        short(x),
+                        g.cpus,
+                        analysis::fmt_gib(g.memory_gib),
+                        if g.time_limit_h > 0.0 {
+                            fmt_time_h(g.time_limit_h)
+                        } else {
+                            "n/a".into()
+                        },
+                        g.tasks,
+                        retried,
+                        g.killed_tasks,
+                        g.peak_rss_gib
+                            .map(analysis::fmt_gib)
+                            .unwrap_or_else(|| "n/a".into()),
+                        pct(share),
+                        suggested,
+                        money(g.saving)
+                    ));
+                }
+            }
+        }
     }
     s
 }
@@ -804,6 +883,67 @@ mod tests {
         let md = render_markdown(&run, &r, &recs, 25, None, None, &Default::default());
         assert!(md.contains("each task's average over its run time"), "{md}");
         assert!(!md.contains("100% CPU efficiency"), "{md}");
+    }
+
+    /// A process whose memory is set per task shows "varies" instead of a cut, is named in the
+    /// note, and gets one row per request group with its retries.
+    #[test]
+    fn request_groups_are_shown_and_not_flattened() {
+        const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+        let mut tasks: Vec<nf_audit::model::Task> = (0..4)
+            .map(|i| {
+                let big = i < 2;
+                nf_audit::model::Task {
+                    hash: format!("g{i}/1"),
+                    name: format!("P:SPLIT (s{i})"),
+                    process: "P:SPLIT".into(),
+                    tag: Some(format!("s{i}")),
+                    status: "COMPLETED".into(),
+                    exit: Some(0),
+                    attempt: Some(1),
+                    realtime_s: Some(3600.0),
+                    pct_cpu: Some(100.0),
+                    peak_rss: Some(if big { 60.0 } else { 10.0 } * GIB),
+                    cpus: Some(12.0),
+                    memory: Some(if big { 96.0 } else { 16.0 } * GIB),
+                    time_s: Some(16.0 * 3600.0),
+                    ..Default::default()
+                }
+            })
+            .collect();
+        let r = Rates::SEQERA_COMPUTE;
+        let render = |tasks: &[nf_audit::model::Task]| {
+            let run = analyse(tasks, &r);
+            let recs = recommend(&run, &r, 1.25);
+            render_markdown(&run, &r, &recs, 25, None, None, &Default::default())
+        };
+        let md = render(&tasks);
+        assert!(
+            md.contains("| SPLIT | 12 → 2 | varies | 16h → 2h | $4.00 |"),
+            "{md}"
+        );
+        assert!(md.contains("instead (see Memory by request group below): SPLIT (memory)."));
+        assert!(
+            md.contains("| SPLIT | 12 | 16 GB | 16h | 2 | 0 | 0 | 10 GB | 62% | 14 GB | $0.10 |"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| SPLIT | 12 | 96 GB | 16h | 2 | 0 | 0 | 60 GB | 62% | 80 GB | $0.80 |"),
+            "{md}"
+        );
+
+        // A 16 GB task retried at 32 GB: its group keeps the request, the process is left alone.
+        let mut retry = tasks[3].clone();
+        tasks[3].status = "FAILED".into();
+        tasks[3].exit = Some(1);
+        (retry.hash, retry.attempt, retry.memory) = ("g3/2".into(), Some(2), Some(32.0 * GIB));
+        tasks.push(retry);
+        let md = render(&tasks);
+        assert!(md.contains("| SPLIT | 12 | 16 GB | 16h | 3 | 1 (up to 32 GB) | 0 | 10 GB | 62% | keep (escalates) | $0.00 |"), "{md}");
+        assert!(
+            md.contains("shrinking them could make those tasks fail: SPLIT."),
+            "{md}"
+        );
     }
 
     #[test]
