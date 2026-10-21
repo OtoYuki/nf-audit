@@ -723,7 +723,7 @@ fn render_markdown(
             ));
         }
         s.push_str(&not_sized_note);
-        s.push_str("\nSavings assume the same run time at the smaller allocation, which holds for memory and for CPU-bound processes that were not using the extra cores. Validate on one real run before rolling out; a process at 100% CPU efficiency will slow down if you cut its cores.\n");
+        s.push_str("\nSavings assume the same run time at the smaller allocation. That holds for memory and for processes that were not using their extra cores, but the CPU figure is each task's average over its run time: a task that is single-threaded for most of its life and briefly parallel shows as about one core, and its parallel part runs slower on fewer cores. The trace cannot show that. Validate on one real run before rolling out.\n");
     }
     s
 }
@@ -788,6 +788,22 @@ mod tests {
         );
         assert!(md.contains("16h → 16h (tight)"), "{md}");
         assert!(md.contains("(longest task 10.9 h of 16h)"), "{md}");
+    }
+
+    /// The closing caveat warns about what a cut can actually do: hide a brief parallel phase in a
+    /// per-task average. A process at 100% CPU efficiency is never cut, so warning about it misleads.
+    #[test]
+    fn cpu_caveat_names_the_per_task_average() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata");
+        let (tasks, _) =
+            input::read_report_with_meta(&root.join("execution_report_synthetic.html")).unwrap();
+        let r = Rates::SEQERA_COMPUTE;
+        let run = analyse(&tasks, &r);
+        let recs = recommend(&run, &r, 1.25);
+        assert!(!recs.is_empty());
+        let md = render_markdown(&run, &r, &recs, 25, None, None, &Default::default());
+        assert!(md.contains("each task's average over its run time"), "{md}");
+        assert!(!md.contains("100% CPU efficiency"), "{md}");
     }
 
     #[test]

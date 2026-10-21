@@ -101,4 +101,4 @@ The tag is the text in parentheses after the process name. nf-core pipelines usu
 | MANTA_GERMLINE | 10 → 10 | 8 GB → 1 GB | 16h → 30m | $0.04 |
 | STRELKA_SOMATIC | 10 → 10 | 8 GB → 2 GB | 16h → 30m | $0.04 |
 
-Savings assume the same run time at the smaller allocation, which holds for memory and for CPU-bound processes that were not using the extra cores. Validate on one real run before rolling out; a process at 100% CPU efficiency will slow down if you cut its cores.
+Savings assume the same run time at the smaller allocation. That holds for memory and for processes that were not using their extra cores, but the CPU figure is each task's average over its run time: a task that is single-threaded for most of its life and briefly parallel shows as about one core, and its parallel part runs slower on fewer cores. The trace cannot show that. Validate on one real run before rolling out.

@@ -91,4 +91,4 @@ The tag is the text in parentheses after the process name. nf-core pipelines usu
 
 Time limits marked (tight) are kept although 1.5× the longest task's run time exceeds them. nf-audit never raises a request, but a task only a little longer than the longest here would hit the limit, so consider raising it: RSEM_CALCULATEEXPRESSION (longest task 10.9 h of 16h).
 
-Savings assume the same run time at the smaller allocation, which holds for memory and for CPU-bound processes that were not using the extra cores. Validate on one real run before rolling out; a process at 100% CPU efficiency will slow down if you cut its cores.
+Savings assume the same run time at the smaller allocation. That holds for memory and for processes that were not using their extra cores, but the CPU figure is each task's average over its run time: a task that is single-threaded for most of its life and briefly parallel shows as about one core, and its parallel part runs slower on fewer cores. The trace cannot show that. Validate on one real run before rolling out.
