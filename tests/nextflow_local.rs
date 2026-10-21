@@ -1,8 +1,9 @@
 //! A real run, not a synthetic fixture: `testdata/nextflow-local/main.nf` run by Nextflow 25.04.8
 //! on the local executor (no container, no cloud). Three `BUSY` tasks over-request CPUs, memory
 //! and time; `ESCALATES` doubles its memory per attempt and one task exits 137 on its first
-//! attempt. `scripts/e2e-nextflow.sh` regenerates these files and also applies the fragment in
-//! Nextflow, checking that it loads and takes effect.
+//! attempt; `GROUPED` sets its memory per task (2 GB for `s3`, 1 GB for the others).
+//! `scripts/e2e-nextflow.sh` regenerates these files and also applies the fragment in Nextflow,
+//! checking that it loads and takes effect.
 
 use nf_audit::analysis::{analyse, recommend, render_config, Rates};
 use nf_audit::input::{merge, read_report_with_meta, read_trace};
@@ -19,8 +20,8 @@ fn run() -> Vec<nf_audit::model::Task> {
 #[test]
 fn local_executor_run_parses_and_merges() {
     let tasks = run();
-    // 3 BUSY + 3 ESCALATES + the retried ESCALATES (s1).
-    assert_eq!(tasks.len(), 7);
+    // 3 BUSY + 3 ESCALATES + the retried ESCALATES (s1) + 3 GROUPED.
+    assert_eq!(tasks.len(), 10);
     let st = analyse(&tasks, &Rates::SEQERA_COMPUTE);
     assert_eq!(st.tasks_without_requests, 0);
     let esc = st
@@ -71,4 +72,32 @@ fn fragment_lowers_busy_and_leaves_the_escalating_process_alone() {
         "    withName: 'NFCORE_DEMO:SUB:BUSY' {\n        cpus   = 2\n        memory = '1.GB'\n        time   = '15.m'\n    }"
     ));
     assert!(!cfg.contains("ESCALATES"));
+}
+
+/// GROUPED's memory differs per task, so the fragment lowers its CPUs and time but writes no
+/// memory: one value there would replace the pipeline's per-task setting for every task.
+#[test]
+fn fragment_keeps_memory_the_pipeline_sets_per_task() {
+    let st = analyse(&run(), &Rates::SEQERA_COMPUTE);
+    let p = st
+        .processes
+        .iter()
+        .find(|p| p.process == "NFCORE_DEMO:SUB:GROUPED")
+        .unwrap();
+    let groups: Vec<(f64, usize)> = p
+        .groups
+        .iter()
+        .map(|g| (g.memory_gib, g.usage.tasks))
+        .collect();
+    assert_eq!(groups, [(1.0, 2), (2.0, 1)]);
+    let recs = recommend(&st, &Rates::SEQERA_COMPUTE, 1.25);
+    let g = recs
+        .iter()
+        .find(|r| r.process == "NFCORE_DEMO:SUB:GROUPED")
+        .unwrap();
+    assert_eq!(g.varied, ["memory"]);
+    assert_eq!(g.groups.len(), 2);
+    assert!(render_config(&recs).contains(
+        "    withName: 'NFCORE_DEMO:SUB:GROUPED' {\n        cpus   = 2\n        time   = '15.m'\n    }"
+    ));
 }

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # End to end against real Nextflow: run testdata/nextflow-local/main.nf, audit it, apply the
-# generated fragment with `-c`, and check that Nextflow ran the lowered requests and kept the
-# escalating process's retry escalation.
+# generated fragment with `-c`, and check that Nextflow ran the lowered requests, kept the
+# escalating process's retry escalation, and kept the memory GROUPED sets per task.
 #
 # Usage: scripts/e2e-nextflow.sh [--update]
-#   --update  also copy the fresh trace and report over testdata/nextflow-local/
+#   --update  also copy the first run's trace and report over testdata/nextflow-local/
 # Needs podman or docker. NXF_IMAGE overrides the Nextflow image.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,11 +20,16 @@ cp testdata/nextflow-local/main.nf testdata/nextflow-local/nextflow.config "$W/"
 nxf() { "$ENGINE" run --rm -v "$W:/w:Z" -w /w "$IMAGE" nextflow "$@"; }
 
 nxf run main.nf -ansi-log false >/dev/null
+# Keep the first run's files: the second run below overwrites the report.
+mkdir "$W/first"
+cp "$W"/pipeline_info/execution_trace.txt "$W"/pipeline_info/execution_report.html "$W/first/"
 "$ROOT/target/release/nf-audit" analyze \
-  --trace "$W/pipeline_info/execution_trace.txt" --report "$W/pipeline_info/execution_report.html" \
+  --trace "$W/first/execution_trace.txt" --report "$W/first/execution_report.html" \
   --config-out "$W/nf-audit.config" >"$W/report.md"
 grep -q "Left as they are.*ESCALATES" "$W/report.md" || { echo "ESCALATES was not left alone" >&2; exit 1; }
 if grep -q ESCALATES "$W/nf-audit.config"; then echo "ESCALATES is in the fragment" >&2; exit 1; fi
+grep -qF '| GROUPED | 4 → 2 | varies |' "$W/report.md" || { echo "GROUPED memory not shown as varying" >&2; exit 1; }
+if awk '/GROUPED/,/^    }/' "$W/nf-audit.config" | grep -q memory; then echo "GROUPED memory is in the fragment" >&2; exit 1; fi
 
 cat >"$W/fields.config" <<'EOF'
 trace { fields = "name,status,attempt,cpus,memory,time"; file = "pipeline_info/applied.txt"; overwrite = true }
@@ -34,13 +39,18 @@ nxf run main.nf -ansi-log false -c nf-audit.config -c fields.config >/dev/null
 # Every BUSY task ran at the fragment's values; the retried ESCALATES attempt still doubled.
 busy=$(grep -c $'SUB:BUSY ([^)]*)\tCOMPLETED\t1\t2\t1 GB\t15m' "$W/pipeline_info/applied.txt" || true)
 retry=$(grep -c $'SUB:ESCALATES (s1)\tCOMPLETED\t2\t2\t2 GB\t30m' "$W/pipeline_info/applied.txt" || true)
-if [[ $busy -ne 3 || $retry -ne 1 ]]; then
+# GROUPED's CPUs and time were lowered, and each task kept the memory the pipeline gave it.
+grouped=0
+for row in $'s1)\tCOMPLETED\t1\t2\t1 GB\t15m' $'s2)\tCOMPLETED\t1\t2\t1 GB\t15m' $'s3)\tCOMPLETED\t1\t2\t2 GB\t15m'; do
+  if grep -qF "SUB:GROUPED ($row" "$W/pipeline_info/applied.txt"; then grouped=$((grouped + 1)); fi
+done
+if [[ $busy -ne 3 || $retry -ne 1 || $grouped -ne 3 ]]; then
   cat "$W/pipeline_info/applied.txt" >&2
-  echo "fragment not applied as expected (BUSY rows: $busy/3, escalated retry: $retry/1)" >&2
+  echo "fragment not applied as expected (BUSY rows: $busy/3, escalated retry: $retry/1, GROUPED rows: $grouped/3)" >&2
   exit 1
 fi
 
 if [[ "${1:-}" == "--update" ]]; then
-  cp "$W"/pipeline_info/execution_trace.txt "$W"/pipeline_info/execution_report.html testdata/nextflow-local/
+  cp "$W"/first/execution_trace.txt "$W"/first/execution_report.html testdata/nextflow-local/
 fi
-echo "e2e: Nextflow loaded the fragment; BUSY ran at 2 CPUs / 1 GB / 15m, ESCALATES kept its escalation"
+echo "e2e: Nextflow loaded the fragment; BUSY ran at 2 CPUs / 1 GB / 15m, ESCALATES kept its escalation, GROUPED kept its per-task memory"
