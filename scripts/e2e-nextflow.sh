@@ -4,7 +4,7 @@
 # escalating process's retry escalation.
 #
 # Usage: scripts/e2e-nextflow.sh [--update]
-#   --update  also copy the fresh trace and report over testdata/nextflow-local/
+#   --update  also copy the first run's trace and report over testdata/nextflow-local/
 # Needs podman or docker. NXF_IMAGE overrides the Nextflow image.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,8 +20,11 @@ cp testdata/nextflow-local/main.nf testdata/nextflow-local/nextflow.config "$W/"
 nxf() { "$ENGINE" run --rm -v "$W:/w:Z" -w /w "$IMAGE" nextflow "$@"; }
 
 nxf run main.nf -ansi-log false >/dev/null
+# Keep the first run's files: the second run below overwrites the report.
+mkdir "$W/first"
+cp "$W"/pipeline_info/execution_trace.txt "$W"/pipeline_info/execution_report.html "$W/first/"
 "$ROOT/target/release/nf-audit" analyze \
-  --trace "$W/pipeline_info/execution_trace.txt" --report "$W/pipeline_info/execution_report.html" \
+  --trace "$W/first/execution_trace.txt" --report "$W/first/execution_report.html" \
   --config-out "$W/nf-audit.config" >"$W/report.md"
 grep -q "Left as they are.*ESCALATES" "$W/report.md" || { echo "ESCALATES was not left alone" >&2; exit 1; }
 if grep -q ESCALATES "$W/nf-audit.config"; then echo "ESCALATES is in the fragment" >&2; exit 1; fi
@@ -41,6 +44,6 @@ if [[ $busy -ne 3 || $retry -ne 1 ]]; then
 fi
 
 if [[ "${1:-}" == "--update" ]]; then
-  cp "$W"/pipeline_info/execution_trace.txt "$W"/pipeline_info/execution_report.html testdata/nextflow-local/
+  cp "$W"/first/execution_trace.txt "$W"/first/execution_report.html testdata/nextflow-local/
 fi
 echo "e2e: Nextflow loaded the fragment; BUSY ran at 2 CPUs / 1 GB / 15m, ESCALATES kept its escalation"
